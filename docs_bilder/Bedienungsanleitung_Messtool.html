@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bedienungsanleitung – Messtool</title>
+    <style>
+        /* ── Reset & Basis ─────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            font-size: 10.5pt;
+            color: #1a1a1a;
+            background: #f2f4f7;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* ── Seitenleiste ──────────────────────────────────────── */
+        aside {
+            width: 230px;
+            min-width: 230px;
+            background: #003366;
+            color: #c8d8ee;
+            padding: 32px 0 40px 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        aside .brand {
+            padding: 0 20px 24px 20px;
+            border-bottom: 1px solid #1a5090;
+        }
+
+        aside .brand .logo-title {
+            font-size: 13pt;
+            font-weight: 700;
+            color: #ffffff;
+            line-height: 1.3;
+        }
+
+        aside .brand .logo-sub {
+            font-size: 8.5pt;
+            color: #8aafd0;
+            margin-top: 3px;
+        }
+
+        aside nav {
+            padding: 20px 0 0 0;
+        }
+
+        aside nav .toc-label {
+            font-size: 7.5pt;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #6a90b8;
+            padding: 0 20px 8px 20px;
+        }
+
+        aside nav ol {
+            list-style: none;
+            counter-reset: toc-counter;
+        }
+
+        aside nav ol li {
+            counter-increment: toc-counter;
+        }
+
+        aside nav ol li a {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            padding: 7px 20px;
+            color: #b8cfe8;
+            text-decoration: none;
+            font-size: 9.5pt;
+            line-height: 1.35;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        aside nav ol li a::before {
+            content: counter(toc-counter, decimal-leading-zero);
+            font-size: 8pt;
+            color: #5a80a8;
+            flex-shrink: 0;
+            font-weight: 600;
+            min-width: 22px;
+        }
+
+        aside nav ol li a:hover {
+            background: #1a5090;
+            color: #ffffff;
+        }
+
+        aside nav ol li a:hover::before {
+            color: #80b8ff;
+        }
+
+        /* ── Hauptinhalt ───────────────────────────────────────── */
+        main {
+            margin-left: 230px;
+            flex: 1;
+            padding: 40px 56px 60px 56px;
+            max-width: 860px;
+        }
+
+        /* ── Titelblock ────────────────────────────────────────── */
+        .doc-header {
+            border-bottom: 3px solid #003366;
+            padding-bottom: 18px;
+            margin-bottom: 36px;
+        }
+
+        .doc-header h1 {
+            font-size: 22pt;
+            color: #003366;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .doc-header .meta {
+            margin-top: 8px;
+            font-size: 9.5pt;
+            color: #666;
+            display: flex;
+            gap: 24px;
+        }
+
+        .doc-header .meta span::before {
+            content: '';
+        }
+
+        /* ── Kapitel-Überschriften ─────────────────────────────── */
+        section {
+            margin-bottom: 40px;
+        }
+
+        h2 {
+            font-size: 13pt;
+            font-weight: 700;
+            color: #ffffff;
+            background: #003366;
+            padding: 9px 16px;
+            margin-bottom: 18px;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h2 .kap-nr {
+            background: rgba(255,255,255,0.18);
+            font-size: 9pt;
+            padding: 2px 7px;
+            border-radius: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        h3 {
+            font-size: 10.5pt;
+            font-weight: 700;
+            color: #003366;
+            margin: 20px 0 6px 0;
+            padding-left: 10px;
+            border-left: 3px solid #4a8fd4;
+        }
+
+        p {
+            margin-bottom: 10px;
+            line-height: 1.65;
+        }
+
+        /* ── Listen ────────────────────────────────────────────── */
+        ul, ol {
+            padding-left: 22px;
+            margin-bottom: 12px;
+        }
+
+        li {
+            margin-bottom: 5px;
+            line-height: 1.55;
+        }
+
+        li ul, li ol {
+            margin-top: 4px;
+            margin-bottom: 4px;
+        }
+
+        /* ── Hinweis-Boxen ─────────────────────────────────────── */
+        .box {
+            padding: 10px 14px;
+            margin: 14px 0;
+            border-radius: 4px;
+            font-size: 9.5pt;
+            line-height: 1.55;
+        }
+
+        .box strong {
+            display: block;
+            margin-bottom: 3px;
+        }
+
+        .box-info {
+            background: #eef4ff;
+            border-left: 4px solid #4a8fd4;
+        }
+
+        .box-warn {
+            background: #fffbea;
+            border-left: 4px solid #e6a817;
+        }
+
+        /* ── Code ──────────────────────────────────────────────── */
+        code {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 9.5pt;
+            background: #eef1f6;
+            border: 1px solid #d4dae8;
+            padding: 1px 5px;
+            border-radius: 3px;
+            color: #1a3a6a;
+        }
+
+        /* ── Trennlinie ────────────────────────────────────────── */
+        .divider {
+            border: none;
+            border-top: 1px solid #dde2ec;
+            margin: 32px 0;
+        }
+
+        /* ── Footer ────────────────────────────────────────────── */
+        footer {
+            margin-top: 40px;
+            padding-top: 16px;
+            border-top: 1px solid #dde2ec;
+            text-align: center;
+            font-size: 8.5pt;
+            color: #999;
+        }
+
+        /* ── Druckansicht ──────────────────────────────────────── */
+        @media print {
+            body { background: white; display: block; }
+            aside { display: none; }
+            main { margin-left: 0; max-width: 100%; padding: 20px; }
+            h2 { background: #003366; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ══ Seitenleiste ══════════════════════════════════════════ -->
+    <aside>
+        <div class="brand">
+            <div class="logo-title">Messtool</div>
+            <div class="logo-sub">Stadler – E-Engineering</div>
+        </div>
+        <nav>
+            <div class="toc-label">Inhaltsverzeichnis</div>
+            <ol>
+                <li><a href="#kap1">Programmübersicht</a></li>
+                <li><a href="#kap2">Hauptfenster – Eingabe</a></li>
+                <li><a href="#kap3">Dateiimport</a></li>
+                <li><a href="#kap4">Datenverarbeitung</a></li>
+                <li><a href="#kap5">Ausgabefelder</a></li>
+                <li><a href="#kap6">Signalauswahl &amp; Visualisierung</a></li>
+                <li><a href="#kap7">Analyse-Ergebnisse-Fenster</a></li>
+                <li><a href="#kap8">Gruppenbildung &amp; Analyse</a></li>
+                <li><a href="#kap9">Filterung</a></li>
+                <li><a href="#kap10">Export</a></li>
+                <li><a href="#kap11">Zusätzliche Funktionen</a></li>
+                <li><a href="#kap12">Wichtige Hinweise</a></li>
+            </ol>
+        </nav>
+    </aside>
+
+    <!-- ══ Hauptinhalt ═══════════════════════════════════════════ -->
+    <main>
+
+        <div class="doc-header">
+            <h1>Bedienungsanleitung &ndash; Messtool</h1>
+            <div class="meta">
+                <span>Stadler &ndash; E-Engineering</span>
+                <span>Version: 2026-03-30</span>
+            </div>
+        </div>
+
+        <!-- 1 -->
+        <section id="kap1">
+            <h2><span class="kap-nr">01</span> Programmübersicht</h2>
+            <p>
+                Das Messtool ist eine Python-basierte Anwendung zur Verarbeitung und Analyse von Messdaten aus Excel- und CSV-Dateien. Das Programm berechnet Zeit- und Frequenzdaten, visualisiert Signale und ermöglicht erweiterte Filterung sowie Export-Funktionen. Alle Berechnungen erfolgen automatisch nach dem Import der Daten.
+            </p>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 2 -->
+        <section id="kap2">
+            <h2><span class="kap-nr">02</span> Hauptfenster – Eingabebereiche</h2>
+
+            <h3>Start Reihe / End Reihe</h3>
+            <p>
+                Definieren Sie den Zeilenbereich Ihrer Messdaten (z.&nbsp;B. 2–1000). Reihe&nbsp;1 enthält typischerweise Header-Informationen und wird ignoriert. Die Startreihe sollte die erste Datenzeile sein. Gültige Eingaben: positive ganze Zahlen.
+            </p>
+            <div class="box box-info">
+                <strong>Beispiel</strong>
+                Start Reihe = 2, End Reihe = 500 &rarr; importiert die Zeilen 2 bis 500.
+            </div>
+
+            <h3>Start Spalte / End Spalte</h3>
+            <p>
+                Wählen Sie den Bereich der Messkanäle aus. Spalten können als Buchstaben (A, B, C&nbsp;…) oder als Nummern (1, 2, 3&nbsp;…) angegeben werden – das System konvertiert automatisch. Metadaten-Spalten wie SECTION, LOGDATA, Nb, Type, Date und Time werden automatisch ignoriert.
+            </p>
+
+            <h3>Samplefrequenz FS [Hz]</h3>
+            <p>
+                Abtastfrequenz in Hertz (Anzahl der Messwerte pro Sekunde). Diese Eingabe ist entscheidend für:
+            </p>
+            <ul>
+                <li>Zeitachse: <code>dt = 1 / FS</code></li>
+                <li>FFT-Frequenzauflösung: <code>df = FS / n</code></li>
+                <li>Filtervalidierung: Grenzfrequenzen müssen unter <code>FS / 2</code> (Nyquist) liegen</li>
+            </ul>
+            <div class="box box-info">
+                <strong>Beispiel</strong>
+                FS = 1000&nbsp;Hz &rarr; dt = 0,001&nbsp;s = 1&nbsp;ms pro Messwert.
+            </div>
+
+            <h3>Fenstertyp</h3>
+            <ul>
+                <li><strong>Rechteck:</strong> Gleichmäßige Gewichtung aller Datenpunkte. Einfach, aber höhere Spektral-Leckage.</li>
+                <li><strong>Hanning:</strong> Reduzierte Leckage durch geringere Randgewichtung. Besser für detaillierte Spektrumanalysen bei engen Frequenzbändern.</li>
+            </ul>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 3 -->
+        <section id="kap3">
+            <h2><span class="kap-nr">03</span> Dateiimport</h2>
+
+            <h3>Datei importieren (Button)</h3>
+            <p>Klicken Sie auf „Datei importieren", um eine Excel- oder CSV-Datei auszuwählen. Das Programm:</p>
+            <ul>
+                <li>Erkennt automatisch die Zeichenkodierung (UTF-8, Latin-1, Windows-1252 usw.)</li>
+                <li>Identifiziert den Spalten-Separator bei CSV (Komma, Semikolon, Tab, Leerzeichen)</li>
+                <li>Entfernt leere Zeilen und Spalten automatisch</li>
+                <li>Erkennt MultiIndex-Header bei Excel (Signalname in Reihe&nbsp;1, Einheit in Reihe&nbsp;2)</li>
+                <li>Zeigt Fortschritt mit Prozentsatz und Dateiname im Statusfenster an</li>
+            </ul>
+            <p>Nach erfolgreichem Import werden die verfügbaren Spalten in der Signalliste angezeigt.</p>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 4 -->
+        <section id="kap4">
+            <h2><span class="kap-nr">04</span> Datenverarbeitung</h2>
+
+            <h3>Verarbeitung starten (Button)</h3>
+            <p>Nach dem Import klicken Sie auf „Verarbeitung starten". Das Programm berechnet automatisch:</p>
+            <ul>
+                <li><strong>Zeitachse (t):</strong> Lineares Array von 0 bis <code>(n&minus;1) · dt</code></li>
+                <li><strong>Frequenzachse (f):</strong> FFT-Frequenzen von 0 bis <code>FS / 2</code>, Auflösung <code>df = FS / n</code></li>
+                <li><strong>FFT-Spektren:</strong> Amplitude und Phase aller ausgewählten Signale</li>
+                <li><strong>Statistische Werte:</strong> Startzeit, Endzeit, Anzahl Samples, dt, df</li>
+            </ul>
+            <p>Alle Schritte werden mit Zeitstempel im Statusbereich protokolliert. Bei Fehlern erscheint eine aussagekräftige Fehlermeldung.</p>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 5 -->
+        <section id="kap5">
+            <h2><span class="kap-nr">05</span> Ausgabefelder</h2>
+            <p>Nach erfolgreicher Verarbeitung werden folgende Werte automatisch angezeigt:</p>
+
+            <h3>Startzeit / Endzeit</h3>
+            <p>Zeitliche Grenzen der Messdaten. Startzeit = immer 0&nbsp;s; Endzeit = <code>(n&minus;1) · dt</code>. Schreibgeschützt, nur zur Information.</p>
+
+            <h3>Samples (n)</h3>
+            <p>Gesamtzahl der Messwerte im definierten Bereich. Mehr Samples = bessere Frequenzauflösung (<code>df = FS / n</code>).</p>
+
+            <h3>dt [s]</h3>
+            <p>Zeitschritt zwischen zwei Messwerten. <code>dt = 1 / FS</code> &nbsp;&rarr;&nbsp; FS = 1000&nbsp;Hz ergibt dt = 0,001&nbsp;s.</p>
+
+            <h3>df [Hz]</h3>
+            <p>Frequenzauflösung des Spektrums. <code>df = FS / n</code> &nbsp;&rarr;&nbsp; FS = 1000&nbsp;Hz, n = 10.000 ergibt df = 0,1&nbsp;Hz.</p>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 6 -->
+        <section id="kap6">
+            <h2><span class="kap-nr">06</span> Signalauswahl &amp; Visualisierung</h2>
+
+            <h3>Einzelsignale auswählen</h3>
+            <p>Wählen Sie ein Signal durch Einfachklick aus der Liste. Das Analyse-Ergebnisse-Fenster öffnet sich automatisch.</p>
+
+            <h3>Mehrere Signale auswählen</h3>
+            <p>
+                Verwenden Sie <strong>Strg+Klick</strong>, um mehrere Signale zu markieren. Alle markierten Signale werden gemeinsam im Analyse-Ergebnisse-Fenster dargestellt – jedes in einer eigenen Farbe (Seaborn-Palette).
+            </p>
+
+            <h3>Gruppenanalyse</h3>
+            <p>Über den Gruppen-Reiter können Signale zu Gruppen zusammengefasst und gemeinsam analysiert werden. Jede Gruppe erhält einen eigenen Subplot mit allen überlagerten Signalen.</p>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 7 -->
+        <section id="kap7">
+            <h2><span class="kap-nr">07</span> Analyse-Ergebnisse-Fenster</h2>
+            <p>
+                Das Analyse-Ergebnisse-Fenster öffnet sich nach der Signalauswahl und zeigt alle Analysen in einem eigenen Fenster. Der Plot passt sich automatisch an die aktuelle Fenstergröße an.
+            </p>
+
+            <h3>Analyse-Typen (Signal-Menü)</h3>
+            <p>Über das Menü „Signal" oben links stehen folgende Analysearten zur Verfügung:</p>
+            <ul>
+                <li><strong>Signal:</strong> Zeitverlauf des Original-Signals (und optional des gefilterten Signals)</li>
+                <li><strong>AVG:</strong> Zeitverlauf mit eingeblendeter Durchschnittslinie (Mittelwert)</li>
+                <li><strong>RMS:</strong> Zeitverlauf mit eingeblendeter RMS-Linie (Effektivwert)</li>
+                <li><strong>Differential:</strong> Zeitverlauf + erste Ableitung des Signals (d/dt)</li>
+                <li><strong>Integral:</strong> Zeitverlauf + Integral über die Zeit (kumulierte Summe)</li>
+                <li><strong>FFT:</strong> Zeitverlauf + Amplitudenspektrum + Phasenspektrum</li>
+                <li><strong>Statistik:</strong> Zeitverlauf mit Mittelwert und ±1σ-Band (Standardabweichung)</li>
+            </ul>
+            <p>Bei aktivierter Filterung werden die gefilterten Kurven in allen relevanten Subplots zusätzlich dargestellt.</p>
+
+            <h3>Synchroner Zoom</h3>
+            <p>
+                Die Checkboxen „Synchroner Zoom" synchronisieren den Scroll-Zoom auf der Zeitachse über mehrere Subplots hinweg. Bei mehreren Plot-Typen kann die Synchronisierung pro Gruppe separat aktiviert oder deaktiviert werden.
+            </p>
+
+            <h3>Cursor &amp; Bereichsauswahl</h3>
+            <p>Durch Klicken und Ziehen im Plot wird ein Zeitbereich markiert. Das Programm:</p>
+            <ul>
+                <li>Zeigt zwei vertikale Markierungslinien (Start und Ende)</li>
+                <li>Zoomt automatisch in den gewählten Zeitbereich</li>
+                <li>Rendert alle Subplots auf den selektierten Bereich neu</li>
+                <li>Zeigt bei Cursor-Bewegung den aktuellen Messwert als Annotation an</li>
+            </ul>
+
+            <h3>Zuruecksetzen (Button)</h3>
+            <p>
+                Stellt die ursprüngliche Zoom-Ansicht wieder her und löscht die Cursor-Bereichsauswahl. X- und Y-Achsenlimits werden exakt auf die beim Öffnen des Fensters gültigen Werte zurückgesetzt.
+            </p>
+
+            <h3>Toolbar</h3>
+            <ul>
+                <li><strong>Lupe (Zoom-Box):</strong> Rechteck aufziehen zum Zoomen</li>
+                <li><strong>Verschieben:</strong> Plot mit der Maus verschieben (Pan)</li>
+                <li><strong>Speichern:</strong> Aktuellen Plot als PNG exportieren</li>
+                <li><strong>Home:</strong> Zurück zur ursprünglichen Ansicht</li>
+            </ul>
+            <div class="box box-info">
+                <strong>Hinweis</strong>
+                Der Mausrad-Zoom ist immer aktiv, unabhängig vom gewählten Toolbar-Werkzeug. Scrollen über einem Subplot zoomt nur diesen – außer bei aktiviertem synchronem Zoom.
+            </div>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 8 -->
+        <section id="kap8">
+            <h2><span class="kap-nr">08</span> Gruppenbildung &amp; Analyse</h2>
+
+            <h3>Gruppen erstellen</h3>
+            <p>Signale können in Gruppen organisiert werden, um verschiedene Aspekte der Messdaten getrennt zu analysieren. Beispiele:</p>
+            <ul>
+                <li>Gruppe 1: Temperatur-Sensoren</li>
+                <li>Gruppe 2: Druck-Sensoren</li>
+                <li>Gruppe 3: Beschleunigungs-Sensoren</li>
+            </ul>
+
+            <h3>Signale zu Gruppen hinzufügen</h3>
+            <p>
+                Wählen Sie Signale aus der Liste aus und ordnen Sie sie einer Gruppe zu. Die Gruppierung wird für die aktuelle Sitzung gespeichert. Bei erneutem Import müssen die Gruppen neu definiert werden.
+            </p>
+
+            <h3>Gruppenanalyse</h3>
+            <p>
+                Für jede Gruppe stehen alle Analyse-Typen aus Kapitel&nbsp;7 zur Verfügung. Pro Gruppe wird ein eigener Subplot erstellt, in dem alle Signale der Gruppe überlagert dargestellt werden.
+            </p>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 9 -->
+        <section id="kap9">
+            <h2><span class="kap-nr">09</span> Filterung</h2>
+
+            <h3>Filter aktivieren</h3>
+            <p>Aktivieren Sie das Kontrollkästchen „Gefiltert verwenden (Anzeige &amp; Export)". Das Programm validiert automatisch die Filterparameter.</p>
+
+            <h3>Filtertyp</h3>
+            <ul>
+                <li><strong>Kein Filter:</strong> Keine Filterung – Originaldaten werden verwendet.</li>
+                <li><strong>Tiefpass:</strong> Lässt niedrige Frequenzen durch, dämpft hohe. Geeignet zum Entfernen von Hochfrequenzrauschen.</li>
+                <li><strong>Hochpass:</strong> Lässt hohe Frequenzen durch, dämpft niedrige. Geeignet zum Entfernen von Gleichanteilen oder Drifts.</li>
+                <li><strong>Bandpass:</strong> Lässt nur Frequenzen in einem bestimmten Bereich durch. Geeignet zur Isolation spezifischer Frequenzbänder.</li>
+            </ul>
+
+            <h3>Filtercharakteristik</h3>
+            <ul>
+                <li><strong>Butterworth:</strong> Flacher Durchlassbereich, sanfter Übergang. Beste Wahl für allgemeine Anwendungen.</li>
+                <li><strong>Bessel:</strong> Minimal verzerrte Phase. Beste Wahl, wenn die Phasenlage erhalten bleiben soll.</li>
+                <li><strong>Chebyshev I:</strong> Steilerer Übergang, leichte Welligkeit im Durchlassbereich.</li>
+                <li><strong>Elliptic:</strong> Steilster Übergang, höchste Welligkeit. Nur bei sehr steilen Flankenanforderungen.</li>
+            </ul>
+
+            <h3>Grenzfrequenzen</h3>
+            <ul>
+                <li><strong>Tiefpass / Hochpass:</strong> Eine Grenzfrequenz eingeben (kleiner als <code>FS / 2</code>).</li>
+                <li><strong>Bandpass:</strong> F1 und F2 eingeben, wobei F1 &lt; F2 und beide kleiner als <code>FS / 2</code>.</li>
+            </ul>
+            <div class="box box-info">
+                <strong>Beispiel Bandpass</strong>
+                F1 = 10&nbsp;Hz, F2 = 100&nbsp;Hz &rarr; nur Frequenzen zwischen 10 und 100&nbsp;Hz werden durchgelassen.
+            </div>
+
+            <h3>Filterordnung</h3>
+            <ul>
+                <li><strong>Niedrige Ordnung (z.&nbsp;B. 2):</strong> Sanfterer Übergang, geringere Rechenzeit.</li>
+                <li><strong>Hohe Ordnung (z.&nbsp;B. 8):</strong> Steilerer Übergang, mehr Rechenzeit.</li>
+                <li><strong>Bandpass:</strong> Nutzt automatisch Kaskaden-Sektionen (SOS) für höhere numerische Stabilität.</li>
+            </ul>
+
+            <h3>Validierung</h3>
+            <p>Das Programm prüft vor der Anwendung automatisch:</p>
+            <ul>
+                <li>&#10003;&nbsp; Grenzfrequenzen unter der Nyquist-Frequenz (<code>FS / 2</code>)?</li>
+                <li>&#10003;&nbsp; Bei Bandpass: F1 &lt; F2?</li>
+                <li>&#10003;&nbsp; Grenzfrequenzen &gt; 0&nbsp;Hz?</li>
+                <li>&#10003;&nbsp; Alle Eingaben numerisch gültig?</li>
+            </ul>
+            <div class="box box-warn">
+                <strong>Achtung</strong>
+                Bei ungültigen Parametern wird eine Warnung angezeigt (z.&nbsp;B. „Grenzfrequenz 600&nbsp;Hz liegt über Nyquist 500&nbsp;Hz") und der Filter nicht angewendet. Die Originaldaten bleiben unverändert.
+            </div>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 10 -->
+        <section id="kap10">
+            <h2><span class="kap-nr">10</span> Export</h2>
+
+            <h3>Exportieren (Button)</h3>
+            <p>Klicken Sie auf „Exportieren", um die Ergebnisse als strukturierte Ausgabedatei zu speichern.</p>
+
+            <h3>Ausgabedateien</h3>
+            <ul>
+                <li><strong>Excel-Workbook (.xlsx):</strong> Pro Signal ein separates Sheet</li>
+                <li><strong>Info-Block:</strong> Metadaten und Filterparameter (Filtertyp, Grenzfrequenzen, dt, df, Zeitstempel)</li>
+                <li><strong>Datenblock:</strong>
+                    <ul>
+                        <li>Time: Zeitachse [s]</li>
+                        <li>Original: Originalsignaldaten</li>
+                        <li>Gefiltert: Gefilterte Daten (falls aktiv)</li>
+                        <li>Frequenz: FFT-Frequenzachse [Hz]</li>
+                        <li>Amplitude: FFT-Amplitude (Magnitude)</li>
+                        <li>Phase: FFT-Phase [° oder rad]</li>
+                    </ul>
+                </li>
+            </ul>
+
+            <h3>Optionale Zusatzdaten</h3>
+            <ul>
+                <li><strong>Ableitungen &amp; Integrale:</strong> Werden exportiert, wenn in den Overlays ausgewählt.</li>
+                <li><strong>Summary-Tab:</strong> Zusammenfassung aller Signale (Frequenzauflösung, Filtereinstellungen).</li>
+                <li><strong>PNG-Plots:</strong> Hochauflösende Plots im Ordner <code>plots/</code> (Zeitplot, Frequenz-Plot, Übersichts-Plot).</li>
+            </ul>
+
+            <h3>Speicherpfad</h3>
+            <p>Standardmäßig im Arbeitsverzeichnis unter <code>Messtool_Export_[YYYYMMDD_HHMMSS].xlsx</code>. Über „Pfad anzeigen" kann der Speicherpfad eingesehen und geändert werden.</p>
+
+            <h3>Export-Optionen</h3>
+            <ul>
+                <li><strong>Einzelsignal-Export:</strong> Speicher-Button in der Toolbar des Analyse-Fensters.</li>
+                <li><strong>Multi-Export:</strong> Export-Button im Hauptfenster exportiert alle Signale in ein Workbook.</li>
+                <li><strong>Gruppierter Export:</strong> Pro Gruppe ein Workbook (bei aktivierter Gruppenbildung).</li>
+            </ul>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 11 -->
+        <section id="kap11">
+            <h2><span class="kap-nr">11</span> Zusätzliche Funktionen</h2>
+
+            <h3>Pfad anzeigen (Button)</h3>
+            <p>Öffnet ein Fenster mit Import-Pfad, Export-Verzeichnis, Plots-Verzeichnis und Dateigrößen. Verzeichnisse können direkt im Explorer geöffnet werden.</p>
+
+            <h3>Reset wählen (Button)</h3>
+            <ul>
+                <li><strong>Komplett zurücksetzen:</strong> Löscht alle Eingaben, Daten, Ergebnisse, Gruppen und Filtereinstellungen. Das Fenster wird in den Initialzustand versetzt.</li>
+                <li><strong>Nur Eingabefelder zurücksetzen:</strong> Behält importierte Daten, setzt jedoch Reihen, Spalten und FS auf Standard zurück. Filtereinstellungen bleiben erhalten.</li>
+            </ul>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 12 -->
+        <section id="kap12">
+            <h2><span class="kap-nr">12</span> Wichtige Hinweise</h2>
+
+            <h3>Nyquist-Frequenz</h3>
+            <p>
+                Die maximal korrekt erfassbare Frequenz beträgt <code>FS / 2</code>. Alle Filtergrenzfrequenzen müssen darunter liegen.
+            </p>
+            <div class="box box-info">
+                <strong>Beispiel</strong>
+                FS = 1000&nbsp;Hz &rarr; maximale Grenzfrequenz = 500&nbsp;Hz.
+            </div>
+
+            <h3>Bandpass-Filter</h3>
+            <p>F1 (untere Grenze) muss kleiner als F2 (obere Grenze) sein. Nur Frequenzen zwischen F1 und F2 werden durchgelassen.</p>
+
+            <h3>Minimale Datenpunkte</h3>
+            <p>Mindestens 2 Messwerte erforderlich. Für aussagekräftige FFT-Ergebnisse werden 256–1024 Punkte empfohlen.</p>
+
+            <h3>Unterstützte Dateiformate</h3>
+            <ul>
+                <li>Excel: <code>.xlsx</code> (bevorzugt), <code>.xls</code></li>
+                <li>CSV: <code>.csv</code> mit automatischer Separator- und Encoding-Erkennung</li>
+                <li>MultiIndex-Header werden automatisch erkannt</li>
+            </ul>
+
+            <h3>Performance bei großen Datensätzen</h3>
+            <p>Bei mehr als 100.000 Datenpunkten kann die Verarbeitung länger dauern. Die Berechnung erfolgt im Hintergrund mit Fortschrittsanzeige.</p>
+        </section>
+
+        <footer>
+            &copy; 2026 Stadler &ndash; E-Engineering &nbsp;&middot;&nbsp; Alle Rechte vorbehalten.
+        </footer>
+
+    </main>
+
+</body>
+</html>
