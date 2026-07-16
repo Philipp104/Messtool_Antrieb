@@ -177,6 +177,10 @@ class UiControlManager:
         protocol_logger.info("RESET action=all")
         self.gui.reset_active = True
 
+        # --- Mehrfachdatei-Panel ggf. schließen und normales Notebook wiederherstellen ---
+        if hasattr(self.gui, 'multi_file_manager') and self.gui.multi_file_panel.winfo_ismapped():
+            self.gui.multi_file_manager._cancel()
+
         # --- Offene Fenster schließen ---
         for plot_data in self.gui.open_plot_windows:
             if plot_data.get('window') is not None and plot_data['window'].winfo_exists():
@@ -196,6 +200,8 @@ class UiControlManager:
 
         # --- Datenstatus zurücksetzen ---
         self.gui.t            = None
+        self.gui.timestamps_full = None
+        self.gui.timestamps   = None
         self.gui.nS           = None
         self.gui.dt           = None
         self.gui.CF           = None
@@ -309,6 +315,13 @@ class UiControlManager:
         if selected == Cfg.Texts.RESET_KOMPLETT_DESC:
             self.reset_all()
         elif selected == Cfg.Texts.RESET_EINGABE_DESC:
+            # Bei mehreren Dateien (Mehrfachdatei-Panel aktiv): nicht die normale
+            # Einzeldatei-Eingabe zuruecksetzen (die geladenen Dateien sollen
+            # erhalten bleiben), sondern Signalauswahl schliessen und zurueck zu
+            # Schritt 1 (Samplefrequenz/Fensterfunktion).
+            if hasattr(self.gui, "multi_file_manager") and self.gui.multi_file_manager.is_active():
+                self.gui.multi_file_manager.return_to_step1()
+                return
             self.reset_inputs()
             self.gui.flood_gauge.stop()
             self.gui.flood_gauge.pack_forget()

@@ -45,6 +45,7 @@ from gui_module.gui_layout_manager import GuiLayoutManager
 from gui_module.plot_fenster_manager import PlotWindowManager
 from gui_module.oberflaechen_steuerung import UiControlManager
 from gui_module.analyse_manager import AnalysisManager
+from gui_module.mehrfachdatei_manager import MehrfachDateiManager
 from konfiguration import Cfg
 
 # ============================================================
@@ -68,6 +69,8 @@ class GuiManager:
         # --- Datenstatus ---
         self.df              = None
         self.t               = None
+        self.timestamps_full = None
+        self.timestamps      = None
         self.nS              = None
         self.dt              = None
         self.CF              = None
@@ -102,6 +105,7 @@ class GuiManager:
         self.plot_window_manager = PlotWindowManager(self)
         self.layout_manager      = GuiLayoutManager(self)
         self.analysis_manager    = AnalysisManager(self)
+        self.multi_file_manager  = MehrfachDateiManager(self)
 
         # --- GUI-Elemente ---
         self.root                    = None
@@ -229,20 +233,25 @@ class GuiManager:
     # --------------------------------------------------------
 
     def load_data(self):
-        """Lädt Daten aus ausgewählter Datei."""
+        """Lädt die erste Datei über den normalen Dateidialog und öffnet danach
+        das Datei-Sammel-Fenster, in dem bei Bedarf weitere Dateien hinzugefügt
+        werden können (Button "Mehr Dateien"), bevor mit "Fertig" fortgefahren wird.
+        """
         self._enter_loading_state()
         protocol_logger.info(Cfg.Logs.GUI_IMPORT_CLICK)
 
-        file_path = filedialog.askopenfilename(
-            filetypes=Cfg.Export.SUPPORTED_FILETYPES
-        )
+        file_path = filedialog.askopenfilename(filetypes=Cfg.Export.SUPPORTED_FILETYPES)
+        self._exit_loading_state()
 
         if not file_path:
             protocol_logger.info(Cfg.Logs.GUI_IMPORT_CANCELLED)
-            self._exit_loading_state()
             self.status_label.config(text=Cfg.Status.GUI_IMPORT_CANCELLED)
             return
 
+        self.multi_file_manager.open_file_accumulator([file_path])
+
+    def _load_single_file(self, file_path):
+        """Lädt genau eine Datei über den bestehenden Single-Datei-Weg."""
         protocol_logger.info(Cfg.Logs.GUI_FILE_SELECTED.format(file_path))
         self.status_label.config(text=Cfg.Status.GUI_FILE_SELECTED.format(file_path))
         self.Gesamtpfad = Path(file_path)
@@ -286,7 +295,7 @@ class GuiManager:
         file_handler.file_path = str(self.Gesamtpfad)
         result                 = file_handler.read_top(self.status_label, self.progress_label)
 
-        if self._apply_loaded_dataset(result):
+        if self._apply_loaded_dataset(result, timestamps_full=file_handler.zeitstempel):
             self._log_dataset_preview("CSV")
             self.status_label.config(text=Cfg.Status.GUI_CSV_LOADED)
             protocol_logger.info(Cfg.Logs.GUI_CSV_LOADED.format(file_path))
@@ -311,7 +320,7 @@ class GuiManager:
                 self.sheet_combobox.get(), self.status_label, self.progress_label
             )
 
-            if self._apply_loaded_dataset(result, disable_sheet=True):
+            if self._apply_loaded_dataset(result, disable_sheet=True, timestamps_full=file_handler.zeitstempel):
                 self._log_dataset_preview(f"EXCEL sheet={self.sheet_combobox.get()}")
                 self.status_label.config(text=Cfg.Status.GUI_SHEET_LOADED.format(self.sheet_combobox.get()))
             else:
@@ -321,12 +330,18 @@ class GuiManager:
             logger.exception(Cfg.Logs.GUI_SHEET_LOAD_ERROR.format(str(e)))
             self.status_label.config(text=Cfg.Status.GUI_SHEET_LOAD_ERROR)
 
-    def _apply_loaded_dataset(self, result, disable_sheet=False):
+    def _apply_loaded_dataset(self, result, disable_sheet=False, timestamps_full=None):
         """Wendet geladene Daten auf GUI an."""
         if result[0] is None:
             return False
 
         self.df, self.temp_headers, self.temp_units = result
+        self.timestamps_full = timestamps_full
+        logger.info(
+            "[DEBUG-ZEITACHSE] _apply_loaded_dataset: timestamps_full=%s",
+            "None" if self.timestamps_full is None
+            else f"{len(self.timestamps_full)} Werte, erster={self.timestamps_full.iloc[0]}"
+        )
         self.temp_df = self.df.copy()
         self._prefill_from_df_and_enable()
         self._enable_entries_after_load()
@@ -442,8 +457,15 @@ class GuiManager:
         self.data_validator.temp_units   = self.temp_units
         self.data_validator.reset_active = self.reset_active
 
-    def _process_validated_data(self, validation_result):
-        """Verarbeitet validierte Daten."""
+    def _process_validated_data(self, validation_result, save_subdir=None, open_overlay=True):
+        """Verarbeitet validierte Daten.
+
+        save_subdir: optionaler Unterordner unter spektren/ (z.B. Dateiname beim Batch-Import,
+                     damit Plots/Spektren mehrerer Dateien mit gleichnamigen Signalen sich
+                     nicht gegenseitig ueberschreiben).
+        open_overlay: False unterdrueckt das automatische Oeffnen des Signalauswahl-Fensters
+                      (z.B. beim Batch-Import, wo pro Datei bereits automatisch gespeichert wird).
+        """
         samplerate_fs, hann_fenster, self.value, self.headers, self.units = validation_result
         logger.debug(Cfg.Logs.GUI_PROCESSING_DATA.format(self.value.shape))
 
@@ -457,11 +479,38 @@ class GuiManager:
         self.signals = [self.value[:, i] for i in range(self.value.shape[1])]
         self.spectrum_save_path = None
 
+        # --- Echte Zeitstempel auf denselben Zeilenbereich zuschneiden wie self.t ---
+        self.timestamps = None
+        if self.timestamps_full is not None:
+            try:
+                start_row = self.data_validator.start_row
+                end_row   = self.data_validator.end_row
+                ts_slice  = self.timestamps_full.loc[start_row:end_row].to_numpy()
+                logger.info(
+                    "[DEBUG-ZEITACHSE] _process_validated_data: start_row=%s, end_row=%s, len(ts_slice)=%s, n_samples=%s",
+                    start_row, end_row, len(ts_slice), n_samples
+                )
+                if len(ts_slice) == n_samples:
+                    self.timestamps = ts_slice
+                else:
+                    logger.info("[DEBUG-ZEITACHSE] LAENGEN-MISMATCH -> self.timestamps bleibt None")
+            except Exception:
+                logger.exception("Zeitstempel konnten nicht auf den Zeilenbereich zugeschnitten werden")
+        else:
+            logger.info("[DEBUG-ZEITACHSE] _process_validated_data: self.timestamps_full ist None")
+
+        logger.info(
+            "[DEBUG-ZEITACHSE] Ergebnis: self.timestamps=%s",
+            "None" if self.timestamps is None else f"{len(self.timestamps)} Werte"
+        )
+
         if (save_plots or save_spectrum) and self.dt and self.dt > 0:
             if self.Gesamtpfad:
                 save_dir = self.Gesamtpfad.parent / Cfg.Export.DEFAULT_SPECTRUM_PATH
             else:
                 save_dir = Path(Cfg.Export.DEFAULT_SPECTRUM_PATH)
+            if save_subdir:
+                save_dir = save_dir / save_subdir
             save_dir.mkdir(parents=True, exist_ok=True)
             save_path = str(save_dir)
             time_str  = self.Gesamtpfad.stem if self.Gesamtpfad else ""
@@ -492,7 +541,7 @@ class GuiManager:
         ))
 
         self._exit_loading_state()
-        self._finalize_after_processing()
+        self._finalize_after_processing(open_overlay=open_overlay)
         protocol_logger.info(
             Cfg.Logs.GUI_PROCESSING_DONE.format(
                 len(self.signals) if self.signals is not None else 0,
@@ -513,7 +562,7 @@ class GuiManager:
             df=df
         )
 
-    def _finalize_after_processing(self):
+    def _finalize_after_processing(self, open_overlay=True):
         """Finalisiert GUI nach erfolgreicher Verarbeitung."""
 
         if hasattr(self, 'Verarbeitung_button') and self.Verarbeitung_button:
@@ -530,7 +579,8 @@ class GuiManager:
                 interval=Cfg.PlotStyle.BUTTON_BLINK_DURATION
             )
 
-        self.root.after(0, self.show_multi_signal_overlay_window)
+        if open_overlay:
+            self.root.after(0, self.show_multi_signal_overlay_window)
 
     def check_processing_ready(self):
         """Prüft ob alle Voraussetzungen für Datenverarbeitung erfüllt sind."""
@@ -742,7 +792,7 @@ class GuiManager:
             fs_txt = self.entry5.get().strip()
             if fs_txt and "z.B." not in fs_txt and "auswählen" not in fs_txt:
                 # Zahl extrahieren (aus "Samplefrequenz = 20" oder direkt "20")
-                fs = float(fs_txt.split("=")[-1].strip())
+                fs = float(fs_txt.split("=")[-1].strip().replace(",", "."))
         except Exception:
             pass
 

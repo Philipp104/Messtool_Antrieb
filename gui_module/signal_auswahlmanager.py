@@ -115,6 +115,10 @@ class SignalAuswahlManager:
                 self.gui.overview_window_button.config(state="normal")
             if select_window is not None:
                 select_window.destroy()
+            # Bei mehreren Dateien (Signal-Pool): zurueck zu Schritt 1 des
+            # Mehrfachdatei-Panels statt zur normalen Einzeldatei-Ansicht.
+            if hasattr(self.gui, "multi_file_manager") and self.gui.multi_file_manager.is_active():
+                self.gui.multi_file_manager.return_to_step1()
 
         layout        = self.gui.layout_manager.create_signal_selection_layout(on_window_close)
         select_window = layout["select_window"]
@@ -673,13 +677,19 @@ class SignalAuswahlManager:
                     except ValueError:
                         freq2_float = None
 
-                fs = float(Cfg.Defaults.SAMPLERATE)
-                try:
-                    fs_text = self.gui.entry5.get().strip()
-                    if fs_text and fs_text != "Samplefrequenz z.B. 20":
-                        fs = float(fs_text)
-                except (ValueError, AttributeError):
-                    fs = 20.0
+                fs_text = self.gui.entry5.get().strip()
+                if not fs_text or fs_text == Cfg.Ph.SAMPLERATE:
+                    fs = float(Cfg.Defaults.SAMPLERATE)
+                else:
+                    fs_candidate = fs_text.split("=")[-1].strip().replace(",", ".")
+                    try:
+                        fs = float(fs_candidate)
+                    except ValueError:
+                        messagebox.showerror(
+                            "Fehler - Ungültige Samplingfrequenz",
+                            f"Die Samplingfrequenz '{fs_text}' ist keine gültige Zahl."
+                        )
+                        return
 
                 self.gui.filter_manager.set_filter_parameters(ftype, freq1_float, fs, cutoff_frequency2=freq2_float)
                 self.gui.filter_manager.set_filter_characteristics(characteristic, order_int)
@@ -805,7 +815,21 @@ class SignalAuswahlManager:
             )
 
             if zeitbereich_analysen:
-                t_max          = self.gui.t[-1] if self.gui.t is not None and len(self.gui.t) > 0 else 10
+                if isinstance(self.gui.t, (list, tuple)):
+                    # Signal-Pool (Batch-Import): jedes Signal hat seine eigene Zeitachse -
+                    # der Dialog-Schieberegler geht bis zur laengsten Dauer aller Signale.
+                    t_max = max((arr[-1] for arr in self.gui.t if len(arr) > 0), default=10)
+                    # Fuer den Dialog wird EIN Zeitstempel-Array gebraucht (fuer die
+                    # "14:34:30"-Uhrzeit-Eingabe) - das des ersten ausgewaehlten
+                    # Signals dient als Referenz.
+                    dialog_timestamps = (
+                        PlotManager.t_for_idx(self.gui.timestamps, signal_indices[0])
+                        if signal_indices and isinstance(self.gui.timestamps, (list, tuple))
+                        else None
+                    )
+                else:
+                    t_max = self.gui.t[-1] if self.gui.t is not None and len(self.gui.t) > 0 else 10
+                    dialog_timestamps = self.gui.timestamps
                 selected_label = ", ".join(effective_selected[:3])
                 if len(effective_selected) > 3:
                     selected_label += f" (+{len(effective_selected) - 3} weitere)"
@@ -837,7 +861,8 @@ class SignalAuswahlManager:
                     selected_signal=selected_label,
                     is_filtered=use_filtered,
                     filter_info=filter_info,
-                    analyse_typen=zeitbereich_analysen
+                    analyse_typen=zeitbereich_analysen,
+                    timestamps=dialog_timestamps
                 )
             else:
                 self.plot_window_manager._create_notebook_window(

@@ -245,10 +245,13 @@ class GuiLayoutManager:
         right_pane.add(mid_region,    weight=1)
         right_pane.add(bottom_region, weight=0)
 
+        self.gui.right_pane = right_pane
+
         self._create_status_bar(top_region)
         self._create_logo_background(mid_region)
 
         # --- Notebook ---
+        self.gui.bottom_region   = bottom_region
         self.gui.bottom_notebook = ttk.Notebook(bottom_region)
         self.gui.bottom_notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -258,6 +261,9 @@ class GuiLayoutManager:
         self._create_output_section(output_tab)
         self.gui.bottom_notebook.add(input_tab,  text=Cfg.Texts.TAB_EINGABE)
         self.gui.bottom_notebook.add(output_tab, text=Cfg.Texts.TAB_AUSGABE)
+
+        # --- Mehrfachdatei-Panel (ersetzt bottom_notebook nur wenn mehrere Dateien geladen werden) ---
+        self.gui.multi_file_panel = ttk.Frame(bottom_region)
 
         style = ttk.Style()
         style.configure(".", font=(Cfg.Fonts.FAMILY, Cfg.Fonts.TABS))

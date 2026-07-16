@@ -277,6 +277,7 @@
                 <li><a href="#kap10">Export</a></li>
                 <li><a href="#kap11">Zusätzliche Funktionen</a></li>
                 <li><a href="#kap12">Wichtige Hinweise</a></li>
+                <li><a href="#kap13">Mehrfachdatei-Import (Batch)</a></li>
             </ol>
         </nav>
     </aside>
@@ -288,7 +289,7 @@
             <h1>Bedienungsanleitung &ndash; Messtool</h1>
             <div class="meta">
                 <span>Stadler &ndash; E-Engineering</span>
-                <span>Version: 2026-03-30</span>
+                <span>Version: 2026-07-16</span>
             </div>
         </div>
 
@@ -555,8 +556,13 @@
         <section id="kap10">
             <h2><span class="kap-nr">10</span> Export</h2>
 
-            <h3>Exportieren (Button)</h3>
-            <p>Klicken Sie auf „Exportieren", um die Ergebnisse als strukturierte Ausgabedatei zu speichern.</p>
+            <h3>Export (Button im Analyse-Ergebnisse-Fenster)</h3>
+            <p>
+                Jeder Analyse-Tab (Kapitel&nbsp;7: Signal, AVG, RMS, FFT, Differential,
+                Integral, Statistik) hat neben „Zurücksetzen" einen eigenen
+                „Export"-Button. Ein Klick fragt einen Zielordner ab und speichert
+                jedes im Tab angezeigte Signal als eigene Excel-Datei dort hinein.
+            </p>
 
             <h3>Ausgabedateien</h3>
             <ul>
@@ -586,9 +592,9 @@
 
             <h3>Export-Optionen</h3>
             <ul>
-                <li><strong>Einzelsignal-Export:</strong> Speicher-Button in der Toolbar des Analyse-Fensters.</li>
-                <li><strong>Multi-Export:</strong> Export-Button im Hauptfenster exportiert alle Signale in ein Workbook.</li>
-                <li><strong>Gruppierter Export:</strong> Pro Gruppe ein Workbook (bei aktivierter Gruppenbildung).</li>
+                <li><strong>Einzel-/Mehrfachsignal-Export:</strong> Im Analyse-Tab werden alle dort dargestellten Signale beim Klick auf „Export" gemeinsam exportiert – jedes als eigene Datei.</li>
+                <li><strong>Gruppierter Export:</strong> Bei Gruppenanalyse (Kapitel&nbsp;8) exportiert derselbe Button alle Signale aller angezeigten Gruppen.</li>
+                <li><strong>Mehrfachdatei-Modus:</strong> Signale aus unterschiedlichen Dateien (Kapitel&nbsp;13) können gemeinsam ausgewählt und im selben Vorgang exportiert werden.</li>
             </ul>
         </section>
 
@@ -638,6 +644,76 @@
 
             <h3>Performance bei großen Datensätzen</h3>
             <p>Bei mehr als 100.000 Datenpunkten kann die Verarbeitung länger dauern. Die Berechnung erfolgt im Hintergrund mit Fortschrittsanzeige.</p>
+        </section>
+
+        <hr class="divider">
+
+        <!-- 13 -->
+        <section id="kap13">
+            <h2><span class="kap-nr">13</span> Mehrfachdatei-Import (Batch)</h2>
+
+            <h3>Mehrere Dateien auswählen</h3>
+            <p>
+                Beim Klick auf „Datei importieren" öffnet sich zunächst der normale
+                Dateidialog. Danach erscheint ein Sammelfenster, in dem über „Mehr
+                Dateien" beliebig viele weitere Excel-/CSV-/DWS-Dateien hinzugefügt
+                werden können. Mit „Fertig" wird der Import abgeschlossen &ndash; bei
+                genau einer Datei läuft alles wie gewohnt weiter (Kapitel&nbsp;2&ndash;5),
+                ab zwei Dateien öffnet sich das Mehrfachdatei-Panel.
+            </p>
+
+            <h3>Schritt 1 &ndash; Globale Einstellungen</h3>
+            <p>
+                Samplefrequenz und Fenstertyp werden hier einmal gemeinsam für alle
+                ausgewählten Dateien festgelegt.
+            </p>
+
+            <h3>Schritt 2 &ndash; Datei-Tabs</h3>
+            <p>Jede Datei bekommt einen eigenen, farbig markierten Tab mit:</p>
+            <ul>
+                <li>Sheet-Auswahl (bei Excel-Dateien)</li>
+                <li>Start-/End-Zeile und -Spalte (oder „Ganze Datei verwenden")</li>
+                <li>nach dem Verarbeiten: den eigenen Ausgabewerten dieser Datei (Startzeit, Endzeit, Samples, dt, df)</li>
+            </ul>
+            <p>
+                Über „Verarbeiten" läuft jede Datei <strong>unabhängig</strong> durch
+                dieselbe Pipeline wie beim Einzelimport. Unterschiedliche Spaltenanzahl
+                oder Dauer zwischen den Dateien ist kein Problem, da nichts zeitlich
+                zusammengeführt wird.
+            </p>
+
+            <h3>Automatisches Speichern pro Datei</h3>
+            <p>
+                Ist unter „2. Datenverarbeitung" eine Speicher-Option gewählt, werden
+                Plots und Spektren automatisch für jede Datei einzeln in einen eigenen
+                Unterordner <code>spektren/&lt;Dateiname&gt;/</code> geschrieben.
+            </p>
+
+            <h3>Gemeinsame Signalauswahl (Signal-Pool)</h3>
+            <p>
+                Nach der Verarbeitung aller Dateien öffnet sich <strong>ein</strong>
+                Signalauswahl-Fenster mit den Signalen <strong>aller</strong> Dateien
+                zusammen. Signale können dateiübergreifend gemeinsam ausgewählt und
+                analysiert werden (AVG, RMS, FFT, Differential, Integral, Statistik) &ndash;
+                jedes Signal behält dabei seine eigene Zeitachse und, falls vorhanden,
+                seine eigenen echten Zeitstempel (Uhrzeit-Achse, Kapitel&nbsp;7).
+            </p>
+            <div class="box box-info">
+                <strong>Namenskollisionen</strong>
+                Tragen zwei Dateien ein Signal mit demselben Namen (z.&nbsp;B. „Kanal1"),
+                wird der Name automatisch um den Dateinamen ergänzt
+                (<code>Kanal1 (Datei2)</code>), damit beide eindeutig auswählbar bleiben.
+            </div>
+
+            <h3>Zurück zu Schritt 1</h3>
+            <p>
+                Schließen Sie das Signalauswahl-Fenster oder klicken Sie auf „Eingaben
+                zurücksetzen", gelangen Sie zurück zu Schritt&nbsp;1
+                (Samplefrequenz/Fenstertyp) &ndash; die bereits geladenen Dateien bleiben
+                dabei erhalten, sodass direkt erneut verarbeitet werden kann.
+                „Komplett zurücksetzen" verwirft dagegen auch die geladenen Dateien und
+                beendet den Mehrfachdatei-Modus.
+            </p>
         </section>
 
         <footer>

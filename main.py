@@ -5,7 +5,7 @@ Startet die grafische Benutzeroberfläche des Messdaten-Analyse-Tools.
 Dieses Tool ermöglicht das Importieren, Verarbeiten und Analysieren von
 Messdaten aus verschiedenen Dateiformaten (Excel, CSV, DWS).
 """
-
+    
 import tkinter as tk
 import sys
 import os

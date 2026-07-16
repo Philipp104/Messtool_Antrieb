@@ -26,6 +26,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 #  IMPORTS – Eigene Klassen
 # ============================================================
 from gui_module.plot_manager import PlotManager
+from gui_module.analyse_plotter import AnalysePlotter
 from hilfsklassen.daten_verarbeiter import DatenVerarbeiter
 from konfiguration import Cfg
 
@@ -79,7 +80,7 @@ class AnalysisManager:
 
     def _get_signal_for_operations(self, idx):
         """Gibt (t, original, used, header, unit) für einen Signal-Index zurück."""
-        t      = self.gui.t
+        t      = PlotManager.t_for_idx(self.gui.t, idx)
         header = (self.gui.headers[idx] if idx < len(self.gui.headers)
                   else Cfg.Texts.SIGNAL_FALLBACK.format(idx))
         unit   = self.gui.units[idx] if idx < len(self.gui.units) else ""
@@ -108,6 +109,8 @@ class AnalysisManager:
 
     def _get_t_max(self):
         """Gibt die maximale Zeit zurück, oder 10 als Fallback."""
+        if isinstance(self.gui.t, (list, tuple)):
+            return max((arr[-1] for arr in self.gui.t if len(arr) > 0), default=10)
         return self.gui.t[-1] if self.gui.t is not None and len(self.gui.t) > 0 else 10
 
     # --------------------------------------------------------
@@ -172,7 +175,7 @@ class AnalysisManager:
         Zentralisiert den identischen PlotManager.create_analysis_tab-Aufruf.
         """
         def _plot(frame):
-            PlotManager.create_analysis_tab(
+            AnalysePlotter.create_analysis_tab(
                 frame=frame,
                 analyse_typ=analyse_name,
                 selected_headers=selected_headers,
@@ -185,6 +188,9 @@ class AnalysisManager:
                 filter_manager=filter_manager,
                 start_zeit=start_zeit,
                 ende_zeit=ende_zeit,
+                window_type=(
+                    self.gui.entry6.get().strip() if hasattr(self.gui, "entry6") else None
+                ) or None,
             )
         return _plot
 

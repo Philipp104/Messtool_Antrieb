@@ -48,6 +48,10 @@ class FileHandler:
         self._delimiter = None
         self._is_valid  = False
 
+        # --- Geparste Zeitstempel (nicht in df.attrs, das bricht pandas' interne
+        #     Attrs-Gleichheitspruefung bei astype()/concat() auf Series-Werten) ---
+        self.zeitstempel = None
+
     # --------------------------------------------------------
     #  HILFSMETHODEN (statisch)
     # --------------------------------------------------------
@@ -264,6 +268,8 @@ class FileHandler:
                 status_label.config(text=Cfg.Errors.FILE_INVALID_TIMESTAMP)
                 return None, None, None
 
+            self.zeitstempel = df[time_column]
+
         except Exception as e:
             logger.exception(Cfg.Errors.FILE_EXPORT_FAILED.format(e))
             logger.error("Problematischer Wert: %s", df[time_column].iloc[0])
@@ -293,6 +299,67 @@ class FileHandler:
     # --------------------------------------------------------
     #  LESEN – CSV / TOP
     # --------------------------------------------------------
+
+    def _parse_top_timestamps(self, df):
+        """
+        Parst echte Zeitstempel aus 'Date'+'Time'-Spalten einer TOP/CSV-Datei
+        (Format z.B. '07.03.2025' + '14:34:28,090'). Gibt eine pd.Series mit
+        datetime64-Werten zurück, oder None wenn keine/keine gültigen Spalten vorhanden sind.
+        """
+        date_col = next((c for c in df.columns if str(c).strip().lower() == "date"), None)
+        time_col = next((c for c in df.columns if str(c).strip().lower() == "time"), None)
+
+        logger.info(
+            "[DEBUG-ZEITACHSE] _parse_top_timestamps: df.columns=%s%s | date_col=%r, time_col=%r",
+            list(df.columns)[:15], "..." if len(df.columns) > 15 else "", date_col, time_col
+        )
+
+        if date_col is None and time_col is None:
+            logger.info("[DEBUG-ZEITACHSE] Weder 'Date' noch 'Time' Spalte gefunden -> None")
+            return None
+
+        def _normalize_time_fraction(time_series):
+            """Vereinheitlicht den Millisekunden-Trenner: ',' oder ':' (z.B. '14:34:28:090') -> '.'."""
+            normalized = time_series.astype(str).str.strip()
+            normalized = normalized.str.replace(",", ".", regex=False)
+            normalized = normalized.str.replace(r":(\d{1,3})$", r".\1", regex=True)
+            return normalized
+
+        try:
+            if date_col is not None and time_col is not None:
+                logger.info(
+                    "[DEBUG-ZEITACHSE] Rohwerte Date[:3]=%s | Time[:3]=%s",
+                    df[date_col].astype(str).head(3).tolist(), df[time_col].astype(str).head(3).tolist()
+                )
+                combined = df[date_col].astype(str).str.strip() + " " + _normalize_time_fraction(df[time_col])
+                logger.info("[DEBUG-ZEITACHSE] combined[:3]=%s", combined.head(3).tolist())
+                timestamps = pd.to_datetime(
+                    combined, format="%d.%m.%Y %H:%M:%S.%f", dayfirst=True, errors="coerce"
+                )
+            else:
+                only_col = time_col if time_col is not None else date_col
+                timestamps = pd.to_datetime(
+                    _normalize_time_fraction(df[only_col]),
+                    format="%H:%M:%S.%f", errors="coerce"
+                )
+        except Exception as e:
+            logger.warning("[DEBUG-ZEITACHSE] EXCEPTION beim Parsen: %r", e)
+            logger.warning("Zeitstempel-Parsing (TOP/CSV) fehlgeschlagen: %s", e)
+            return None
+
+        logger.info(
+            "[DEBUG-ZEITACHSE] timestamps geparst: %s Werte, %s ungueltig (NaT), erste 3=%s",
+            len(timestamps), int(timestamps.isna().sum()), timestamps.head(3).tolist()
+        )
+
+        if timestamps.isna().any():
+            logger.warning(
+                "Zeitstempel konnten nicht vollständig geparst werden (%d ungültig) - Uhrzeit-Achse nicht verfügbar",
+                int(timestamps.isna().sum())
+            )
+            return None
+
+        return timestamps
 
     def read_top(self, status_label, progress_label):
         """Liest eine TOP/CSV-Datei mit automatischer Encoding- und Delimiter-Erkennung."""
@@ -436,6 +503,9 @@ class FileHandler:
         logger.info("Zeitspalte '%s' wird als Index-Referenz beibehalten", time_column)
         logger.debug("Zeitwerte (unkonvertiert): %s", df[time_column].head(3).tolist())
         logger.info("Fokus liegt auf numerischen Messdaten - Zeitkonvertierung übersprungen")
+
+        # --- Echte Zeitstempel aus Date+Time-Spalten parsen (für Uhrzeit-Achse) ---
+        self.zeitstempel = self._parse_top_timestamps(df)
 
         progress_label.config(text="")
 

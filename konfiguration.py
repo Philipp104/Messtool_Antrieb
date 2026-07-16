@@ -703,6 +703,10 @@ class Errors:
     VAL_TIMESTAMP_CONVERSION   = "Fehler bei Zeitstempel-Konvertierung: {0}"
     VAL_PROCESSING_FAILED      = "Verarbeitung fehlgeschlagen: {0}"
 
+    # --- Mehrfachdatei-Import (mehrfachdatei_manager.py) ---
+    VAL_MULTIFILE_NOT_LOADED     = "Datei '{0}' konnte nicht geladen werden"
+    VAL_MULTIFILE_FILE_FAILED    = "Verarbeitung von '{0}' fehlgeschlagen: {1}"
+
     # --- Datei-Handler (file_handler.py) ---
     FILE_EMPTY                 = "Fehler: Datei ist leer"
     FILE_NO_TIMESTAMP          = "Fehler: Zeitstempel-Spalte nicht gefunden"

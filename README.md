@@ -1,6 +1,6 @@
 # Messtool – Messdaten-Analyse-Tool
 
-**Version**: 20
+**Version**: 25
 **Entwickler**: Stadler Rail – E-Engineering
 **Sprache**: Python 3.13
 **GUI-Framework**: ttkBootstrap (Tkinter)
@@ -96,8 +96,9 @@ Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Se
 | **plot_fenster_manager.py** | 9.2 KB | Plot-Fenster-Lifecycle • Window-Management • Koordinator-Pattern |
 | **live_plot_fenster_manager.py** | 26.9 KB | Interaktive Plot-Fenster • Live-Updates • Multi-Signal-Overlay • Real-Time-Refresh |
 | **analyse_manager.py** | 19.1 KB | Signal-Analyse (AVG, RMS, Differential, Integral) • Variance, Autocorrelation • Ergebnis-Fenster |
-| **analyse_plotter.py** | 27.5 KB | Analyse-Visualisierung • Multi-Subplot-Layout • Statistische Annotationen |
+| **analyse_plotter.py** | 27.5 KB | Analyse-Visualisierung • Multi-Subplot-Layout • Statistische Annotationen • Export-Button pro Tab |
 | **signal_auswahlmanager.py** | 37.5 KB | Signal-Auswahl-Fenster • Gruppen-Management • Signal-Listbox • Filter-Visualisierung |
+| **mehrfachdatei_manager.py** | – | Mehrfachdatei-Import • Batch-Verarbeitung (jede Datei unabhängig) • Signal-Pool-Aufbau • Rückkehr zu Schritt 1 |
 
 ---
 
@@ -484,9 +485,38 @@ Messtool.exe  (nach PyInstaller-Build)
 3. Ergebnis-Fenster mit Statistiken
 
 ### 7. Export
-1. Button "Exportieren"
-2. Excel mit Metadaten + Daten-Sheets
-3. Optional: PNG-Plots speichern
+1. Im Analyse-Ergebnisse-Fenster (nach Signalauswahl → Plot) auf "Export" klicken
+2. Zielordner wählen – pro angezeigtem Signal wird eine eigene Excel-Datei geschrieben
+3. Enthält Zeit-/Frequenzdaten, AVG/RMS/Differential/Integral und Filter-Metadaten
+
+---
+
+## 📁 Mehrfachdatei-Import (Batch) & Signal-Pool
+
+Werden beim Import mehrere Dateien ausgewählt, öffnet sich statt der normalen
+Eingabedaten-Ansicht ein zweistufiges Panel:
+
+1. **Schritt 1 – Globale Einstellungen:** Samplefrequenz und Fenstertyp gelten für alle Dateien gemeinsam.
+2. **Schritt 2 – Datei-Tabs:** jede Datei bekommt einen eigenen Tab mit eigenem Zeilen-/Spaltenbereich; nach der Verarbeitung stehen dort auch die Ausgabewerte (Startzeit, Endzeit, Samples, dt, df) **pro Datei**.
+
+Beim Verarbeiten läuft jede Datei **unabhängig** durch dieselbe Pipeline wie ein
+Einzelimport – unterschiedliche Spaltenanzahl oder Dauer zwischen den Dateien ist
+kein Problem, da nichts zeitlich zusammengeführt wird. Ist eine Speicher-Option
+aktiv, werden Plots/Spektren automatisch pro Datei nach `spektren/<Dateiname>/`
+geschrieben.
+
+Anschließend öffnet sich **ein** Signalauswahl-Fenster mit den Signalen **aller**
+Dateien zusammen (Signal-Pool). Jedes Signal behält seine eigene Zeit- bzw.
+Uhrzeit-Achse; bei gleichnamigen Signalen aus verschiedenen Dateien wird der
+Dateiname automatisch zur Unterscheidung angehängt (`Kanal1 (Datei2)`). Schließen
+des Signalauswahl-Fensters oder "Eingaben zurücksetzen" führt zurück zu Schritt 1,
+ohne die geladenen Dateien zu verwerfen – "Komplett zurücksetzen" beendet den
+Mehrfachdatei-Modus vollständig.
+
+Technisch wird das über `PlotManager.t_for_idx()` gelöst: `gui.t`/`gui.timestamps`
+sind im Signal-Pool-Fall Listen (ein Zeitarray pro Signal) statt eines einzelnen
+gemeinsamen Arrays; alle Analyse-/Export-/Plot-Funktionen lösen die passende
+Zeitachse pro Signal-Index auf.
 
 ---
 

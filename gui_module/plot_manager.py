@@ -21,6 +21,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import mplcursors
 import numpy as np
+import pandas as pd
 import seaborn as sns
 import ttkbootstrap as tb
 from matplotlib import gridspec
@@ -50,6 +51,19 @@ class PlotManager:
     # --------------------------------------------------------
     #  HILFSMETHODEN
     # --------------------------------------------------------
+
+    @staticmethod
+    def t_for_idx(t, idx):
+        """Loest die Zeitachse fuer ein einzelnes Signal auf.
+
+        Normalerweise ist t EIN gemeinsames Array fuer alle Signale (Einzeldatei/
+        Zusammenfuehren-Modus). Beim kombinierten Signal-Pool (Batch-Modus mit
+        Dateien unterschiedlicher Laenge) ist t stattdessen eine Liste von Arrays,
+        eines pro Signal (gleiche Reihenfolge wie gui.signals) - dann wird hier
+        das zum Index passende Array herausgegriffen."""
+        if isinstance(t, (list, tuple)):
+            return t[idx]
+        return t
 
     @staticmethod
     def _apply_fine_grid(ax):
@@ -520,7 +534,8 @@ class PlotManager:
         selected_signal=None,
         is_filtered=False,
         filter_info=None,
-        analyse_typen=None
+        analyse_typen=None,
+        timestamps=None
     ):
         """
         Zentraler Zeitbereich-Dialog mit Notebook für mehrere Analyse-Typen.
@@ -533,9 +548,36 @@ class PlotManager:
             is_filtered:     Ob gefiltert wird
             filter_info:     Dict mit 'type', 'order', 'characteristic' (optional)
             analyse_typen:   Liste von Analyse-Typen für Tabs, z.B. ["AVG", "RMS", "FFT"]
+            timestamps:      Array echter Zeitstempel (parallel zu t), oder None
         """
         if analyse_typen is None:
             analyse_typen = ["Analyse"]
+
+        uhrzeit_verfuegbar = timestamps is not None and len(timestamps) > 0
+        start_ts = pd.Timestamp(timestamps[0]) if uhrzeit_verfuegbar else None
+        logger.info(
+            "[DEBUG-ZEITBEREICH] show_zeitbereich_dialog: uhrzeit_verfuegbar=%s, start_ts=%s",
+            uhrzeit_verfuegbar, start_ts
+        )
+
+        def parse_zeit_eingabe(text):
+            """Interpretiert Sekunden ('0.5') ODER Uhrzeit ('14:34:30') je nach Eingabe."""
+            raw = text
+            text = text.strip()
+            if ":" in text:
+                if not uhrzeit_verfuegbar:
+                    logger.info("[DEBUG-ZEITBEREICH] parse_zeit_eingabe(%r) -> FEHLER: keine Zeitstempel verfuegbar", raw)
+                    raise ValueError("Keine echten Zeitstempel verfügbar")
+                eingabe_ts = pd.to_datetime(f"{start_ts.date()} {text.replace(',', '.')}")
+                ergebnis = (eingabe_ts - start_ts).total_seconds()
+                logger.info(
+                    "[DEBUG-ZEITBEREICH] parse_zeit_eingabe(%r) -> Uhrzeit-Modus: eingabe_ts=%s, start_ts=%s, ergebnis(s)=%s",
+                    raw, eingabe_ts, start_ts, ergebnis
+                )
+                return ergebnis
+            ergebnis = float(text.replace(",", "."))
+            logger.info("[DEBUG-ZEITBEREICH] parse_zeit_eingabe(%r) -> Sekunden-Modus: ergebnis(s)=%s", raw, ergebnis)
+            return ergebnis
 
         dialog = tb.Toplevel(parent)
         dialog.title(title)
@@ -548,10 +590,19 @@ class PlotManager:
 
         if selected_signal:
             signal_length_text = f" ({t_max:.2f} s)" if t_max else ""
+            if uhrzeit_verfuegbar and t_max:
+                ende_ts = start_ts + pd.Timedelta(seconds=t_max)
+                signal_length_text += f" | {start_ts.strftime('%H:%M:%S')} - {ende_ts.strftime('%H:%M:%S')}"
             ttk.Label(
                 header_frame,
                 text=f"Ausgewähltes Signal: {selected_signal}{signal_length_text}",
                 font=("Arial", 10, "bold")
+            ).pack(anchor="w")
+
+        if uhrzeit_verfuegbar:
+            ttk.Label(
+                header_frame,
+                text="Zeitbereich als Sekunden (z.B. 0.5) oder Uhrzeit (z.B. 14:34:30) eingeben"
             ).pack(anchor="w")
 
         if is_filtered and filter_info:
@@ -604,13 +655,13 @@ class PlotManager:
 
                 ttk.Label(row_frame, text=Cfg.Texts.TIME_RANGE_N.format(zeile + 1), width=15).pack(side=tk.LEFT)
 
-                start_entry = ttk.Entry(row_frame, width=10)
+                start_entry = ttk.Entry(row_frame, width=12)
                 start_entry.insert(0, f"{zeile * 0.5:.1f}")
                 start_entry.pack(side=tk.LEFT, padx=2)
 
                 ttk.Label(row_frame, text="-").pack(side=tk.LEFT)
 
-                ende_entry  = ttk.Entry(row_frame, width=10)
+                ende_entry  = ttk.Entry(row_frame, width=12)
                 ende_val    = min((zeile + 1) * 0.5, t_max) if t_max else (zeile + 1) * 0.5
                 ende_entry.insert(0, f"{ende_val:.1f}")
                 ende_entry.pack(side=tk.LEFT, padx=2)
@@ -651,12 +702,14 @@ class PlotManager:
                 else:
                     for start_entry, ende_entry in data['zeitbereich_felder']:
                         try:
-                            start = float(start_entry.get().strip())
-                            ende  = float(ende_entry.get().strip())
+                            start = parse_zeit_eingabe(start_entry.get())
+                            ende  = parse_zeit_eingabe(ende_entry.get())
                             zeitbereiche.append((start, ende))
                         except ValueError:
                             continue
                 result[analyse_typ] = zeitbereiche
+
+            logger.info("[DEBUG-ZEITBEREICH] berechnen(): finales result=%s", result)
 
             protocol_logger.info(
                 "PLOT_TIME_RANGE title=%s | signal=%s | analyses=%s | ranges=%s",
@@ -731,7 +784,7 @@ class PlotManager:
         plt.figure(109, figsize=Cfg.Layout.Figure.FIG_SIZE_OVERVIEW)
         for i, (sig, header, unit) in enumerate(zip(signals, headers, units)):
             plt.subplot(num_signals, 1, i + 1)
-            t_interp, sig_interp = PlotManager._interpolate_signal(t, sig, factor=5)
+            t_interp, sig_interp = PlotManager._interpolate_signal(PlotManager.t_for_idx(t, i), sig, factor=5)
             plt.plot(t_interp, sig_interp, linewidth=1.5, color=Cfg.Colors.SIGNAL_ORIGINAL)
             ax = plt.gca()
             PlotManager._apply_fine_grid(ax)
@@ -752,26 +805,28 @@ class PlotManager:
     def plot_overview(fig, t, signals, headers, units):
         """Zeigt alle Signale als vertikalen Stapel in einem Figure."""
         filtered_data = [
-            (signals[i], headers[i], units[i] if i < len(units) else '')
+            (i, signals[i], headers[i], units[i] if i < len(units) else '')
             for i, header in enumerate(headers)
             if header not in Cfg.Data.EXCLUDE_COLUMNS and i < len(signals)
         ]
         if not filtered_data:
             return
 
-        filtered_signals, filtered_headers, filtered_units = zip(*filtered_data)
+        filtered_indices, filtered_signals, filtered_headers, filtered_units = zip(*filtered_data)
         num_signals = len(filtered_signals)
 
-        for i, (sig, header, unit) in enumerate(zip(filtered_signals, filtered_headers, filtered_units)):
-            ax = fig.add_subplot(num_signals, 1, i + 1)
-            t_interp, sig_interp = PlotManager._interpolate_signal(t, sig, factor=5)
+        for plot_i, (orig_idx, sig, header, unit) in enumerate(
+            zip(filtered_indices, filtered_signals, filtered_headers, filtered_units)
+        ):
+            ax = fig.add_subplot(num_signals, 1, plot_i + 1)
+            t_interp, sig_interp = PlotManager._interpolate_signal(PlotManager.t_for_idx(t, orig_idx), sig, factor=5)
             ax.plot(t_interp, sig_interp, label=f"{header} [{unit}]",
                     linewidth=Cfg.Colors.LINEWIDTH_ORIGINAL, color=Cfg.Colors.SIGNAL_ORIGINAL)
             ax.set_ylabel(f"[{unit}]", fontsize=Cfg.Fonts.Plots.LEGEND)
             PlotManager._apply_fine_grid(ax)
             ax.legend(loc='upper right', fontsize=Cfg.Fonts.Plots.LEGEND)
             ax.tick_params(labelsize=Cfg.Fonts.SMALL)
-            if i == num_signals - 1:
+            if plot_i == num_signals - 1:
                 ax.set_xlabel(Cfg.AxisLabels.TIME, fontsize=Cfg.Fonts.Plots.LEGEND)
 
         fig.suptitle(Cfg.Texts.OVERVIEW_SUPTITLE.format(num_signals), fontsize=Cfg.Fonts.Plots.PLOT_TITLE, fontweight='bold')

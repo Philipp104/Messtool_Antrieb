@@ -108,6 +108,16 @@ class PlotWindowManager:
         """Erstellt das Notebook-Fenster mit allen Analyse-Tabs."""
         from gui_module.analyse_plotter import AnalysePlotter
 
+        window_type = (
+            self.gui.entry6.get().strip() if hasattr(self.gui, "entry6") else None
+        ) or None
+
+        _ts = self.gui.timestamps
+        logger.info(
+            "[DEBUG-ZEITACHSE] _create_notebook_window: self.gui.timestamps=%s",
+            "None" if _ts is None else f"{len(_ts)} Werte, erster={_ts[0]}"
+        )
+
         result_window = tb.Toplevel(select_window)
         result_window.title("Analyse-Ergebnisse")
         result_window.state('zoomed')
@@ -131,10 +141,12 @@ class PlotWindowManager:
                             signals=self.gui.signals,
                             units=self.gui.units,
                             t=self.gui.t,
+                            timestamps=self.gui.timestamps,
                             dt=self.gui.dt,
                             header_to_signal_idx=header_to_signal_idx,
                             use_filtered=use_filtered,
                             filter_manager=self.gui.filter_manager,
+                            window_type=window_type,
                             start_zeit=start_zeit,
                             ende_zeit=ende_zeit
                         )
@@ -146,10 +158,12 @@ class PlotWindowManager:
                             signals=self.gui.signals,
                             units=self.gui.units,
                             t=self.gui.t,
+                            timestamps=self.gui.timestamps,
                             dt=self.gui.dt,
                             header_to_signal_idx=header_to_signal_idx,
                             use_filtered=use_filtered,
                             filter_manager=self.gui.filter_manager,
+                            window_type=window_type,
                             start_zeit=start_zeit,
                             ende_zeit=ende_zeit
                         )
@@ -166,10 +180,12 @@ class PlotWindowManager:
                             signals=self.gui.signals,
                             units=self.gui.units,
                             t=self.gui.t,
+                            timestamps=self.gui.timestamps,
                             dt=self.gui.dt,
                             header_to_signal_idx=header_to_signal_idx,
                             use_filtered=use_filtered,
                             filter_manager=self.gui.filter_manager,
+                            window_type=window_type,
                             start_zeit=start_zeit,
                             ende_zeit=ende_zeit
                         )
@@ -181,10 +197,12 @@ class PlotWindowManager:
                             signals=self.gui.signals,
                             units=self.gui.units,
                             t=self.gui.t,
+                            timestamps=self.gui.timestamps,
                             dt=self.gui.dt,
                             header_to_signal_idx=header_to_signal_idx,
                             use_filtered=use_filtered,
                             filter_manager=self.gui.filter_manager,
+                            window_type=window_type,
                             start_zeit=start_zeit,
                             ende_zeit=ende_zeit
                         )

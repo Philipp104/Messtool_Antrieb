@@ -6,10 +6,14 @@ Signal-, AVG-, RMS-, FFT-, Differential-, Integral-,
 und Statistik-Analysen für Einzel- und Gruppensignale.
 """
 
+import os
+
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import seaborn as sns
 import logging
@@ -17,17 +21,88 @@ import logging
 logger = logging.getLogger(__name__)
 
 from gui_module.plot_manager import PlotManager
+from hilfsklassen.datei_handler import FileHandler
+from konfiguration import Cfg
 
 
 class AnalysePlotter:
     """Klasse für alle Analyse-Plot-Funktionen"""
 
     @staticmethod
+    def _export_signal_entries(entries, dt, is_filtered, filter_manager, window_type, parent_window):
+        """Exportiert eine Liste von Signal-Eintraegen (header/original/filtered/unit/t_local)
+        als je eine Excel-Datei in einen vom Benutzer gewaehlten Ordner - nutzt den
+        echten, bereits vorhandenen Exporter FileHandler.export_signal_data (der bislang
+        von keinem erreichbaren UI-Pfad korrekt aufgerufen wurde)."""
+        if not entries:
+            messagebox.showinfo("Export", "Keine Signale zum Exportieren vorhanden.", parent=parent_window)
+            return
+
+        folder = filedialog.askdirectory(title="Zielordner für Export wählen", parent=parent_window)
+        if not folder:
+            return
+
+        if is_filtered and filter_manager:
+            filter_info = {
+                'filter_type':    filter_manager.filter_type,
+                'characteristic': filter_manager.characteristic,
+                'order':          filter_manager.order,
+                'cutoff1':        filter_manager.cutoff_frequency,
+                'cutoff2':        filter_manager.cutoff_frequency2,
+                'sample_rate':    filter_manager.sample_rate,
+            }
+        else:
+            filter_info = {
+                'filter_type': Cfg.Defaults.FILTER_TYP, 'characteristic': Cfg.Defaults.FILTER_CHARAKTERISTIK,
+                'order': None, 'cutoff1': None, 'cutoff2': None, 'sample_rate': None,
+            }
+
+        handler = FileHandler()
+        erfolgreich    = []
+        fehlgeschlagen = []
+
+        for entry in entries:
+            header   = entry["header"]
+            t_sig    = np.asarray(entry["t_local"])
+            original = np.asarray(entry["original"])
+            used     = np.asarray(entry["filtered"])
+            unit     = entry["unit"]
+
+            n = min(len(t_sig), len(original), len(used))
+            if n < 2:
+                fehlgeschlagen.append(f"{header}: zu wenige Punkte für Export")
+                continue
+
+            fft_complex = np.fft.rfft(used[:n])
+            f_axis      = np.fft.rfftfreq(n, dt)
+            amp         = np.abs(fft_complex) * 2 / n
+            phase       = np.angle(fft_complex, deg=True)
+
+            safe_name = "".join(c if c.isalnum() or c in " _-()" else "_" for c in header)
+            save_path = os.path.join(folder, f"{safe_name}_export.xlsx")
+
+            success, message = handler.export_signal_data(
+                save_path=save_path,
+                t=t_sig[:n], original=original[:n], used=used[:n],
+                signal_name=header, unit=unit, dt=dt,
+                f_axis=f_axis, amp=amp, phase=phase,
+                filter_info=filter_info, window_type=window_type or Cfg.Defaults.FENSTERTYP,
+                show_avg=True, show_rms=True, show_diff=True, show_integral=True,
+            )
+            (erfolgreich if success else fehlgeschlagen).append(header if success else f"{header}: {message}")
+
+        summary = f"{len(erfolgreich)} von {len(entries)} Signalen exportiert nach {folder}."
+        if fehlgeschlagen:
+            summary += "\n\nFehler:\n" + "\n".join(fehlgeschlagen)
+        messagebox.showinfo("Export", summary, parent=parent_window)
+
+    @staticmethod
     def create_analysis_tab(frame, analyse_typ, selected_headers, signals, units, t, dt,
                             header_to_signal_idx, use_filtered, filter_manager,
-                            start_zeit=None, ende_zeit=None):
+                            start_zeit=None, ende_zeit=None, timestamps=None, window_type=None):
         """Erstellt einen Analyse-Plot: Jedes Signal bekommt eigenen Subplot."""
         t_full = t
+        timestamps_full = timestamps
         if not hasattr(frame, "_cursor_range"):
             frame._cursor_range = None
 
@@ -44,30 +119,19 @@ class AnalysePlotter:
                 child.destroy()
 
             start_eff, end_eff, strict_range = _get_effective_range()
-            maske = None
             xlim_start = None
             xlim_end = None
-            t_local = t_full
+            mask_start = None
+            mask_end = None
 
             if start_eff is not None and end_eff is not None:
                 if strict_range:
-                    maske = (t_full >= start_eff) & (t_full <= end_eff)
+                    mask_start, mask_end = start_eff, end_eff
                     xlim_start, xlim_end = PlotManager._apply_axis_margin(start_eff, end_eff, margin_percent=5)
                 else:
                     margin_start, margin_end = PlotManager._apply_axis_margin(start_eff, end_eff, margin_percent=5)
                     xlim_start, xlim_end = margin_start, margin_end
-                    maske = (t_full >= margin_start) & (t_full <= margin_end)
-
-                if not np.any(maske):
-                    fig = plt.Figure(figsize=(14, 8))
-                    ax = fig.add_subplot(111)
-                    ax.text(0.5, 0.5, "Kein Signal im gewaehlten Zeitbereich", ha="center", va="center")
-                    canvas = FigureCanvasTkAgg(fig, master=frame)
-                    canvas.draw()
-                    canvas.get_tk_widget().pack(fill="both", expand=True)
-                    return
-
-                t_local = t_full[maske]
+                    mask_start, mask_end = margin_start, margin_end
 
             sns.set_theme(style="whitegrid")
             sns.set_context("notebook")
@@ -76,7 +140,7 @@ class AnalysePlotter:
             n_signals = len(selected_headers)
             colors = sns.color_palette("husl", n_signals)
 
-            is_filtered = (use_filtered and filter_manager and 
+            is_filtered = (use_filtered and filter_manager and
                            filter_manager.filter_type != "Kein Filter")
 
             if is_filtered:
@@ -85,14 +149,32 @@ class AnalysePlotter:
             else:
                 filter_str = ""
 
+            # Jedes Signal bekommt seine EIGENE Zeitachse (PlotManager.t_for_idx) -
+            # im Normalfall (ein gemeinsames t fuer alle Signale) liefert das exakt
+            # dasselbe wie vorher, im kombinierten Signal-Pool (Batch, verschiedene
+            # Dateien/Laengen) je Signal dessen eigenes Zeitarray.
             signal_list = []
+            skipped_out_of_range = 0
             for i, header in enumerate(selected_headers):
                 idx = header_to_signal_idx.get(header)
                 if idx is None or idx >= len(signals):
                     continue
+                t_full_i = PlotManager.t_for_idx(t_full, idx)
+                # Unmaskiert - der Startzeitpunkt fuer die "Uhrzeit"-Achse bezieht
+                # sich immer auf t=0 der ganzen Datei, nicht auf den gezoomten Bereich.
+                timestamps_i = PlotManager.t_for_idx(timestamps_full, idx)
                 original = signals[idx]
-                if maske is not None:
-                    original = original[maske]
+
+                if mask_start is not None and mask_end is not None:
+                    maske_i = (t_full_i >= mask_start) & (t_full_i <= mask_end)
+                    if not np.any(maske_i):
+                        skipped_out_of_range += 1
+                        continue
+                    t_local_i = t_full_i[maske_i]
+                    original = original[maske_i]
+                else:
+                    t_local_i = t_full_i
+
                 unit = units[idx] if idx < len(units) else ""
                 color = colors[i]
 
@@ -107,13 +189,20 @@ class AnalysePlotter:
                     "filtered": filtered,
                     "unit": unit,
                     "color": color,
+                    "t_local": t_local_i,
+                    "timestamps_i": timestamps_i,
                 })
 
             n_signals = len(signal_list)
             if n_signals == 0:
+                message = (
+                    "Kein Signal im gewaehlten Zeitbereich"
+                    if skipped_out_of_range > 0
+                    else "Keine gueltigen Signale ausgewaehlt"
+                )
                 fig = plt.Figure(figsize=(14, 8))
                 ax = fig.add_subplot(111)
-                ax.text(0.5, 0.5, "Keine gueltigen Signale ausgewaehlt", ha="center", va="center")
+                ax.text(0.5, 0.5, message, ha="center", va="center")
                 canvas = FigureCanvasTkAgg(fig, master=frame)
                 canvas.draw()
                 canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -154,6 +243,7 @@ class AnalysePlotter:
                     filtered = sig_info["filtered"]
                     unit = sig_info["unit"]
                     color = sig_info["color"]
+                    t_local = sig_info["t_local"]
 
                     if ptype == "Original":
                         sns.lineplot(x=t_local, y=original, ax=ax, color=color)
@@ -252,19 +342,81 @@ class AnalysePlotter:
                             ax.set_xlim(xlim_start, xlim_end)
                         PlotManager._configure_ax(ax, "Amplitude", show_legend=False)
 
-            for ptype in plot_types:
-                group_axes = axes_dict[ptype]
-                for ax in group_axes[:-1]:
-                    plt.setp(ax.get_xticklabels(), visible=False)
+            axis_mode = getattr(frame, "_axis_mode", "Relative Zeit (s)")
+            is_pool   = isinstance(t_full, (list, tuple))
 
-                last_ax = group_axes[-1]
-                if ptype in ["Amplitude", "Phase"]:
-                    last_ax.set_xlabel("Frequenz [Hz]")
-                else:
-                    last_ax.set_xlabel("Zeit [s]")
+            def _make_zeit_formatter(ts_array):
+                if ts_array is None or len(ts_array) == 0:
+                    return None
+                start_ts = pd.Timestamp(ts_array[0])
+
+                def _fmt(x, pos=None):
+                    try:
+                        return (start_ts + pd.Timedelta(seconds=float(x))).strftime("%H:%M:%S")
+                    except Exception:
+                        return ""
+                return _fmt
+
+            if is_pool:
+                # Signal-Pool (Batch-Import, mehrere Dateien): jedes Signal/jede
+                # Zeile hat ihre EIGENE Zeitachse - deshalb pro Zeile eine eigene
+                # Uhrzeit-Formatierung, und (anders als im Normalfall) jede Zeile
+                # zeigt ihre eigene Tick-Beschriftung statt nur die unterste.
+                for ptype in plot_types:
+                    group_axes = axes_dict[ptype]
+                    for row_idx, ax in enumerate(group_axes):
+                        if ptype in ["Amplitude", "Phase"]:
+                            if row_idx == len(group_axes) - 1:
+                                ax.set_xlabel("Frequenz [Hz]")
+                            continue
+                        ts_i = signal_list[row_idx]["timestamps_i"] if row_idx < len(signal_list) else None
+                        formatter = _make_zeit_formatter(ts_i) if axis_mode == "Uhrzeit" else None
+                        if formatter is not None:
+                            ax.set_xlabel("Uhrzeit")
+                            ax.xaxis.set_major_formatter(mticker.FuncFormatter(formatter))
+                        else:
+                            ax.set_xlabel("Zeit [s]")
+                        plt.setp(ax.get_xticklabels(), visible=True)
+            else:
+                uhrzeit_verfuegbar = timestamps_full is not None and len(timestamps_full) > 0
+                zeit_formatter = (
+                    _make_zeit_formatter(timestamps_full)
+                    if (axis_mode == "Uhrzeit" and uhrzeit_verfuegbar) else None
+                )
+
+                for ptype in plot_types:
+                    group_axes = axes_dict[ptype]
+                    for ax in group_axes[:-1]:
+                        plt.setp(ax.get_xticklabels(), visible=False)
+
+                    last_ax = group_axes[-1]
+                    if ptype in ["Amplitude", "Phase"]:
+                        last_ax.set_xlabel("Frequenz [Hz]")
+                    elif zeit_formatter is not None:
+                        last_ax.set_xlabel("Uhrzeit")
+                        last_ax.xaxis.set_major_formatter(mticker.FuncFormatter(zeit_formatter))
+                    else:
+                        last_ax.set_xlabel("Zeit [s]")
 
             control_frame = ttk.Frame(frame)
             control_frame.pack(side="top", fill="x", padx=5, pady=5)
+
+            ttk.Label(control_frame, text="Zeitachse:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            axis_mode_var = tk.StringVar(value=axis_mode)
+            axis_mode_combo = ttk.Combobox(
+                control_frame, textvariable=axis_mode_var,
+                values=["Relative Zeit (s)", "Uhrzeit"],
+                state="normal",
+                width=16
+            )
+            axis_mode_combo.pack(side="left", padx=5)
+
+            def _on_axis_mode_changed(event=None):
+                frame._axis_mode = axis_mode_var.get()
+                logger.info("[DEBUG-ZEITACHSE] Combobox-Auswahl geaendert auf: %r", frame._axis_mode)
+                _render()
+
+            axis_mode_combo.bind("<<ComboboxSelected>>", _on_axis_mode_changed)
 
             ttk.Label(control_frame, text="Synchroner Zoom:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
@@ -322,6 +474,13 @@ class AnalysePlotter:
                     fig._reset_zoom_selection()
 
             ttk.Button(reset_frame, text="Zuruecksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
+
+            def _export():
+                AnalysePlotter._export_signal_entries(
+                    signal_list, dt, is_filtered, filter_manager, window_type, frame.winfo_toplevel()
+                )
+
+            ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)
 
             fig.tight_layout()
 
@@ -371,9 +530,10 @@ class AnalysePlotter:
     @staticmethod
     def create_group_analysis_tab(frame, analyse_typ, grouped_headers, signals, units, t, dt,
                                   header_to_signal_idx, use_filtered, filter_manager,
-                                  start_zeit=None, ende_zeit=None):
+                                  start_zeit=None, ende_zeit=None, timestamps=None, window_type=None):
         """Erstellt einen Analyse-Plot: pro Gruppe ein Subplot mit allen Signalen (keine Aggregation)."""
         t_full = t
+        timestamps_full = timestamps
         if not hasattr(frame, "_cursor_range"):
             frame._cursor_range = None
 
@@ -390,30 +550,19 @@ class AnalysePlotter:
                 child.destroy()
 
             start_eff, end_eff, strict_range = _get_effective_range()
-            maske = None
             xlim_start = None
             xlim_end = None
-            t_local = t_full
+            mask_start = None
+            mask_end = None
 
             if start_eff is not None and end_eff is not None:
                 if strict_range:
-                    maske = (t_full >= start_eff) & (t_full <= end_eff)
+                    mask_start, mask_end = start_eff, end_eff
                     xlim_start, xlim_end = PlotManager._apply_axis_margin(start_eff, end_eff, margin_percent=5)
                 else:
                     margin_start, margin_end = PlotManager._apply_axis_margin(start_eff, end_eff, margin_percent=5)
                     xlim_start, xlim_end = margin_start, margin_end
-                    maske = (t_full >= margin_start) & (t_full <= margin_end)
-
-                if not np.any(maske):
-                    fig = plt.Figure(figsize=(14, 8))
-                    ax = fig.add_subplot(111)
-                    ax.text(0.5, 0.5, "Kein Signal im gewaehlten Zeitbereich", ha="center", va="center")
-                    canvas = FigureCanvasTkAgg(fig, master=frame)
-                    canvas.draw()
-                    canvas.get_tk_widget().pack(fill="both", expand=True)
-                    return
-
-                t_local = t_full[maske]
+                    mask_start, mask_end = margin_start, margin_end
 
             sns.set_theme(style="whitegrid")
             sns.set_context("notebook")
@@ -429,6 +578,17 @@ class AnalysePlotter:
                     cleaned.append(header)
                 if cleaned:
                     cleaned_groups.append(cleaned)
+
+            # Referenz-Zeitstempel pro Gruppe (fuer die "Uhrzeit"-Achse im Pool-Modus):
+            # das erste Signal jeder Gruppe bestimmt den Startzeitpunkt der Zeile -
+            # bei Gruppen mit Signalen aus mehreren Dateien ist das ein Kompromiss,
+            # da eine gemeinsame Achse nicht mehrere Startzeiten gleichzeitig zeigen kann.
+            group_timestamps_ref = []
+            for group in cleaned_groups:
+                idx0 = header_to_signal_idx.get(group[0])
+                group_timestamps_ref.append(
+                    PlotManager.t_for_idx(timestamps_full, idx0) if idx0 is not None else None
+                )
 
             n_groups = len(cleaned_groups)
             if n_groups == 0:
@@ -448,6 +608,35 @@ class AnalysePlotter:
                 filter_str = f" (Gefiltert: {filter_info['type']}, {filter_info['order']}, {filter_info['characteristic']})"
             else:
                 filter_str = ""
+
+            # Flache, eindeutige Signal-Liste ueber alle Gruppen hinweg (fuer den
+            # Export-Button - unabhaengig von der Gruppen/ptype-Darstellung unten).
+            export_entries = []
+            seen_export_headers = set()
+            for group in cleaned_groups:
+                for header in group:
+                    if header in seen_export_headers:
+                        continue
+                    seen_export_headers.add(header)
+                    idx = header_to_signal_idx.get(header)
+                    if idx is None or idx >= len(signals):
+                        continue
+                    t_full_i = PlotManager.t_for_idx(t_full, idx)
+                    original_i = signals[idx]
+                    if mask_start is not None and mask_end is not None:
+                        maske_i = (t_full_i >= mask_start) & (t_full_i <= mask_end)
+                        if not np.any(maske_i):
+                            continue
+                        t_local_i = t_full_i[maske_i]
+                        original_i = original_i[maske_i]
+                    else:
+                        t_local_i = t_full_i
+                    unit_i = units[idx] if idx < len(units) else ""
+                    filtered_i = filter_manager.apply_filter(original_i) if is_filtered else original_i
+                    export_entries.append({
+                        "header": header, "original": original_i, "filtered": filtered_i,
+                        "unit": unit_i, "t_local": t_local_i,
+                    })
 
             if analyse_typ == "Signal":
                 plot_types = ["Original", "Gefiltert"] if is_filtered else ["Original"]
@@ -487,9 +676,17 @@ class AnalysePlotter:
                         if idx is None or idx >= len(signals):
                             continue
 
+                        t_full_i = PlotManager.t_for_idx(t_full, idx)
                         original = signals[idx]
-                        if maske is not None:
-                            original = original[maske]
+
+                        if mask_start is not None and mask_end is not None:
+                            maske_i = (t_full_i >= mask_start) & (t_full_i <= mask_end)
+                            if not np.any(maske_i):
+                                continue
+                            t_local_i = t_full_i[maske_i]
+                            original = original[maske_i]
+                        else:
+                            t_local_i = t_full_i
 
                         unit = units[idx] if idx < len(units) else ""
                         unit_set.add(unit)
@@ -503,7 +700,8 @@ class AnalysePlotter:
                             "header": header,
                             "original": original,
                             "filtered": filtered,
-                            "unit": unit
+                            "unit": unit,
+                            "t_local": t_local_i,
                         })
 
                     if not group_signals:
@@ -513,8 +711,8 @@ class AnalysePlotter:
 
                     if ptype == "Original":
                         for sig in group_signals:
-                            sns.lineplot(x=t_local, y=sig["original"], ax=ax, linewidth=1.5, label=sig["header"])
-                            signal_data.setdefault(ax, []).append((t_local, sig["original"], sig["header"]))
+                            sns.lineplot(x=sig["t_local"], y=sig["original"], ax=ax, linewidth=1.5, label=sig["header"])
+                            signal_data.setdefault(ax, []).append((sig["t_local"], sig["original"], sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
@@ -522,8 +720,8 @@ class AnalysePlotter:
 
                     elif ptype == "Gefiltert":
                         for sig in group_signals:
-                            sns.lineplot(x=t_local, y=sig["filtered"], ax=ax, linewidth=1.5, label=sig["header"])
-                            signal_data.setdefault(ax, []).append((t_local, sig["filtered"], sig["header"]))
+                            sns.lineplot(x=sig["t_local"], y=sig["filtered"], ax=ax, linewidth=1.5, label=sig["header"])
+                            signal_data.setdefault(ax, []).append((sig["t_local"], sig["filtered"], sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
@@ -532,10 +730,10 @@ class AnalysePlotter:
                     elif ptype == "AVG":
                         for sig in group_signals:
                             avg_value = float(np.nanmean(sig["filtered"]))
-                            sns.lineplot(x=t_local, y=sig["filtered"], ax=ax, linewidth=1.2, label=sig["header"])
+                            sns.lineplot(x=sig["t_local"], y=sig["filtered"], ax=ax, linewidth=1.2, label=sig["header"])
                             ax.axhline(avg_value, linestyle="--", linewidth=1,
                                        label=f"{sig['header']} AVG={avg_value:.4g} {sig['unit']}")
-                            signal_data.setdefault(ax, []).append((t_local, sig["filtered"], sig["header"]))
+                            signal_data.setdefault(ax, []).append((sig["t_local"], sig["filtered"], sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
@@ -544,10 +742,10 @@ class AnalysePlotter:
                     elif ptype == "RMS":
                         for sig in group_signals:
                             rms_value = float(np.sqrt(np.nanmean(sig["filtered"]**2)))
-                            sns.lineplot(x=t_local, y=sig["filtered"], ax=ax, linewidth=1.2, label=sig["header"])
+                            sns.lineplot(x=sig["t_local"], y=sig["filtered"], ax=ax, linewidth=1.2, label=sig["header"])
                             ax.axhline(rms_value, linestyle="--", linewidth=1,
                                        label=f"{sig['header']} RMS={rms_value:.4g} {sig['unit']}")
-                            signal_data.setdefault(ax, []).append((t_local, sig["filtered"], sig["header"]))
+                            signal_data.setdefault(ax, []).append((sig["t_local"], sig["filtered"], sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
@@ -556,8 +754,8 @@ class AnalysePlotter:
                     elif ptype == "Ableitung":
                         for sig in group_signals:
                             diff = np.gradient(sig["filtered"], dt)
-                            sns.lineplot(x=t_local, y=diff, ax=ax, linewidth=1.2, label=sig["header"])
-                            signal_data.setdefault(ax, []).append((t_local, diff, sig["header"]))
+                            sns.lineplot(x=sig["t_local"], y=diff, ax=ax, linewidth=1.2, label=sig["header"])
+                            signal_data.setdefault(ax, []).append((sig["t_local"], diff, sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
@@ -567,8 +765,8 @@ class AnalysePlotter:
                     elif ptype == "Integral":
                         for sig in group_signals:
                             integral = np.cumsum(sig["filtered"]) * dt
-                            sns.lineplot(x=t_local, y=integral, ax=ax, linewidth=1.2, label=sig["header"])
-                            signal_data.setdefault(ax, []).append((t_local, integral, sig["header"]))
+                            sns.lineplot(x=sig["t_local"], y=integral, ax=ax, linewidth=1.2, label=sig["header"])
+                            signal_data.setdefault(ax, []).append((sig["t_local"], integral, sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
@@ -599,10 +797,10 @@ class AnalysePlotter:
                         for sig in group_signals:
                             mean_val = np.mean(sig["filtered"])
                             std_val = np.std(sig["filtered"])
-                            sns.lineplot(x=t_local, y=sig["filtered"], ax=ax, linewidth=1.2, label=sig["header"])
+                            sns.lineplot(x=sig["t_local"], y=sig["filtered"], ax=ax, linewidth=1.2, label=sig["header"])
                             ax.axhline(y=mean_val, linestyle="--", linewidth=1,
                                        label=f"{sig['header']} Mean={mean_val:.4g}")
-                            signal_data.setdefault(ax, []).append((t_local, sig["filtered"], sig["header"]))
+                            signal_data.setdefault(ax, []).append((sig["t_local"], sig["filtered"], sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
@@ -617,19 +815,80 @@ class AnalysePlotter:
                         unit_suffix = " [Grad]"
                     ax.set_title(f"Gruppe {group_idx + 1} - {ptype}{unit_suffix}")
 
-            for ptype in plot_types:
-                group_axes = axes_dict[ptype]
-                for ax in group_axes[:-1]:
-                    plt.setp(ax.get_xticklabels(), visible=False)
+            axis_mode = getattr(frame, "_axis_mode", "Relative Zeit (s)")
+            is_pool   = isinstance(t_full, (list, tuple))
 
-                last_ax = group_axes[-1]
-                if ptype in ["Amplitude", "Phase"]:
-                    last_ax.set_xlabel("Frequenz [Hz]")
-                else:
-                    last_ax.set_xlabel("Zeit [s]")
+            def _make_zeit_formatter(ts_array):
+                if ts_array is None or len(ts_array) == 0:
+                    return None
+                start_ts = pd.Timestamp(ts_array[0])
+
+                def _fmt(x, pos=None):
+                    try:
+                        return (start_ts + pd.Timedelta(seconds=float(x))).strftime("%H:%M:%S")
+                    except Exception:
+                        return ""
+                return _fmt
+
+            if is_pool:
+                # Signal-Pool: jede Gruppe/Zeile bekommt ihre eigene Uhrzeit-
+                # Formatierung (Referenz: erstes Signal der Gruppe, siehe
+                # group_timestamps_ref) und zeigt ihre eigene Tick-Beschriftung.
+                for ptype in plot_types:
+                    group_axes = axes_dict[ptype]
+                    for row_idx, ax in enumerate(group_axes):
+                        if ptype in ["Amplitude", "Phase"]:
+                            if row_idx == len(group_axes) - 1:
+                                ax.set_xlabel("Frequenz [Hz]")
+                            continue
+                        ts_i = group_timestamps_ref[row_idx] if row_idx < len(group_timestamps_ref) else None
+                        formatter = _make_zeit_formatter(ts_i) if axis_mode == "Uhrzeit" else None
+                        if formatter is not None:
+                            ax.set_xlabel("Uhrzeit")
+                            ax.xaxis.set_major_formatter(mticker.FuncFormatter(formatter))
+                        else:
+                            ax.set_xlabel("Zeit [s]")
+                        plt.setp(ax.get_xticklabels(), visible=True)
+            else:
+                uhrzeit_verfuegbar = timestamps_full is not None and len(timestamps_full) > 0
+                zeit_formatter = (
+                    _make_zeit_formatter(timestamps_full)
+                    if (axis_mode == "Uhrzeit" and uhrzeit_verfuegbar) else None
+                )
+
+                for ptype in plot_types:
+                    group_axes = axes_dict[ptype]
+                    for ax in group_axes[:-1]:
+                        plt.setp(ax.get_xticklabels(), visible=False)
+
+                    last_ax = group_axes[-1]
+                    if ptype in ["Amplitude", "Phase"]:
+                        last_ax.set_xlabel("Frequenz [Hz]")
+                    elif zeit_formatter is not None:
+                        last_ax.set_xlabel("Uhrzeit")
+                        last_ax.xaxis.set_major_formatter(mticker.FuncFormatter(zeit_formatter))
+                    else:
+                        last_ax.set_xlabel("Zeit [s]")
 
             control_frame = ttk.Frame(frame)
             control_frame.pack(side="top", fill="x", padx=5, pady=5)
+
+            ttk.Label(control_frame, text="Zeitachse:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            axis_mode_var = tk.StringVar(value=axis_mode)
+            axis_mode_combo = ttk.Combobox(
+                control_frame, textvariable=axis_mode_var,
+                values=["Relative Zeit (s)", "Uhrzeit"],
+                state="normal",
+                width=16
+            )
+            axis_mode_combo.pack(side="left", padx=5)
+
+            def _on_axis_mode_changed(event=None):
+                frame._axis_mode = axis_mode_var.get()
+                logger.info("[DEBUG-ZEITACHSE] Combobox-Auswahl geaendert auf: %r", frame._axis_mode)
+                _render()
+
+            axis_mode_combo.bind("<<ComboboxSelected>>", _on_axis_mode_changed)
 
             ttk.Label(control_frame, text="Synchroner Zoom:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
@@ -687,6 +946,13 @@ class AnalysePlotter:
                     fig._reset_zoom_selection()
 
             ttk.Button(reset_frame, text="Zuruecksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
+
+            def _export():
+                AnalysePlotter._export_signal_entries(
+                    export_entries, dt, is_filtered, filter_manager, window_type, frame.winfo_toplevel()
+                )
+
+            ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)
 
             fig.tight_layout()
 

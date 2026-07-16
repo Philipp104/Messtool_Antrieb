@@ -58,6 +58,8 @@ class LivePlotFensterManager:
 
     def _get_t_max(self):
         """Gibt die maximale Zeit zurück, oder 10 als Fallback."""
+        if isinstance(self.gui.t, (list, tuple)):
+            return max((arr[-1] for arr in self.gui.t if len(arr) > 0), default=10)
         return self.gui.t[-1] if self.gui.t is not None and len(self.gui.t) > 0 else 10
 
     def _get_filter_info_if_active(self, plot_window_data):
@@ -256,7 +258,7 @@ class LivePlotFensterManager:
                 self.gui.status_label.config(text=f"Signal '{selected_signal}' nicht gefunden.")
                 return
 
-            t        = np.asarray(self.gui.t)
+            t        = np.asarray(PlotManager.t_for_idx(self.gui.t, idx))
             original = np.asarray(self.gui.signals[idx])
             unit     = self.gui.units[idx] if idx < len(self.gui.units) else ""
 
@@ -409,7 +411,7 @@ class LivePlotFensterManager:
 
         original_signal = self.gui.signals[idx]
         unit            = self.gui.units[idx] if idx < len(self.gui.units) else ""
-        t               = self.gui.t
+        t               = PlotManager.t_for_idx(self.gui.t, idx)
         filter_type     = Cfg.Defaults.FILTER_TYP
 
         filtered_signal = original_signal
