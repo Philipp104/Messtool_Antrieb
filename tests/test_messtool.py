@@ -10,6 +10,7 @@ from hilfsklassen.daten_validator import DataValidator
 from hilfsklassen.filter_manager import FilterManager
 from hilfsklassen.datei_handler import FileHandler
 from hilfsklassen.daten_verarbeiter import DatenVerarbeiter
+from konfiguration import Cfg
 
 log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
 os.makedirs(log_dir, exist_ok=True)
@@ -321,7 +322,7 @@ class TestFilterDaempfung(unittest.TestCase):
         signal = np.sin(2 * np.pi * 50 * self.t)
         self.fm.filter_type = "Tiefpass"
         self.fm.cutoff_frequency = 100
-        for char in ["butterworth", "bessel", "Chebyshev I", "elliptic"]:
+        for char in ["butterworth", "bessel", "Chebyshev I", "Elliptic"]:
             self.fm.characteristic = char
             self.fm.order = 4
             result = self.fm.apply_filter(signal)
@@ -374,13 +375,38 @@ class TestFFTBerechnung(unittest.TestCase):
                                msg="120 Hz Amplitude falsch")
         logger.info("FFT Zwei-Frequenzen-Test: 50 Hz=%.3f, 120 Hz=%.3f", amp[idx_50], amp[idx_120])
 
-    def test_fft_leeres_signal(self):
+    def test_fft_zu_wenige_samples(self):
+        """FFT mit weniger als FFT_MIN_SAMPLES muss fehlschlagen (kein sinnvolles Spektrum)."""
         dv = DatenVerarbeiter()
         dv.dt = 0.001
         t = np.array([0.0, 0.001])
         f, amp, phase = dv.calculate_fft(np.array([1.0, 1.0]), t)
+        self.assertIsNone(f)
+        self.assertIsNone(amp)
+        self.assertIsNone(phase)
+
+    def test_fft_genau_min_samples(self):
+        """FFT mit genau FFT_MIN_SAMPLES Samples muss erfolgreich sein."""
+        n = Cfg.Limits.FFT_MIN_SAMPLES
+        fs = 1000
+        t = np.linspace(0, n / fs, n, endpoint=False)
+        signal = np.sin(2 * np.pi * 10 * t)
+
+        dv = DatenVerarbeiter()
+        dv.dt = 1.0 / fs
+        dv.window_type = "rectangular"
+        f, amp, phase = dv.calculate_fft(signal, t)
         self.assertIsNotNone(f)
-        self.assertGreater(len(f), 0)
+        self.assertEqual(len(amp), n // 2)
+
+    def test_fft_zu_viele_samples(self):
+        """Signal über FFT_MAX_SAMPLES muss von validate_signal_data abgelehnt werden."""
+        dv = DatenVerarbeiter()
+        dv.dt = 0.001
+        n = Cfg.Limits.FFT_MAX_SAMPLES + 1
+        t = np.zeros(n)
+        y = np.zeros(n)
+        self.assertFalse(dv.validate_signal_data(t, y))
 
     def test_fft_dc_signal(self):
         fs = 1000

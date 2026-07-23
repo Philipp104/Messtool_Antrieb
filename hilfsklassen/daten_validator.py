@@ -14,13 +14,13 @@ import logging
 # ============================================================
 #  IMPORTS – Drittanbieter
 # ============================================================
-import numpy as np
 import pandas as pd
 
 # ============================================================
 #  IMPORTS – Eigene Klassen
 # ============================================================
 from konfiguration import Cfg
+from gui_module import meldungen
 
 # ============================================================
 #  LOGGING
@@ -196,15 +196,19 @@ class DataValidator:
         return self.temp_df if (self.reset_active and self.temp_df is not None) else self.df
 
     def _adjust_row_range(self, df_to_use):
-        """Passt End-Zeile an maximalen Index an."""
+        """Passt End-Zeile an maximalen Index an; meldet Start-Zeile außerhalb des Bereichs."""
         max_rows = df_to_use.index.max()
+
+        if self._start_row is not None and self._start_row > max_rows:
+            msg = Cfg.Errors.VAL_START_ROW_OUT_OF_RANGE.format(self._start_row, max_rows)
+            meldungen.showerror(Cfg.Texts.ERROR, msg)
+            raise ValueError(msg)
+
         if self._end_row > max_rows:
             old = self._end_row
             self.end_row = max_rows
             logger.info(Cfg.Logs.VAL_RANGE_ADJUSTED.format("End-Zeile", old, max_rows))
-        elif self._end_row == max_rows - 1:
-            self.end_row = max_rows
-            logger.info(Cfg.Logs.VAL_RANGE_ADJUSTED.format("End-Zeile", max_rows - 1, max_rows))
+            meldungen.showinfo(Cfg.Texts.HINT, Cfg.Status.VAL_END_ROW_CLAMPED.format(old, max_rows))
 
     def _adjust_col_range(self, df_to_use, is_multiindex=False):
         """Passt End-Spalte an maximale Spaltenanzahl an."""
@@ -213,6 +217,7 @@ class DataValidator:
             old = self._end_col
             self.end_col = max_cols - 1
             logger.info(Cfg.Logs.VAL_RANGE_ADJUSTED.format("End-Spalte", old, max_cols - 1))
+            meldungen.showinfo(Cfg.Texts.HINT, Cfg.Status.VAL_END_COL_CLAMPED.format(old, max_cols - 1))
 
     # --------------------------------------------------------
     #  GUI-EINGABEN EINLESEN

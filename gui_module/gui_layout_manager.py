@@ -58,10 +58,13 @@ class GuiLayoutManager:
         if not hasattr(self.gui, 'bottom_notebook'):
             return
 
-        self._blinking       = True
-        self._blink_tab_index = tab_index
+        self._blinking             = True
+        self._blink_tab_index      = tab_index
+        self._blink_original_text  = None
+        self._blink_job            = None
         notebook             = self.gui.bottom_notebook
         original_text        = notebook.tab(tab_index, "text")
+        self._blink_original_text = original_text
         style                = ttk.Style()
 
         colors      = {0: Cfg.Colors.TAB_INPUT, 1: Cfg.Colors.TAB_OUTPUT}
@@ -70,9 +73,7 @@ class GuiLayoutManager:
 
         def do_blink(count):
             if count <= 0:
-                self._blinking = False
-                notebook.tab(tab_index, text=original_text)
-                self._on_tab_changed()
+                self._stop_blink()
                 return
             if count % 2 == 0:
                 style.map("Custom.TNotebook.Tab",
@@ -84,16 +85,41 @@ class GuiLayoutManager:
                     background=[("selected", Cfg.Colors.TAB_INACTIVE), ("!selected", Cfg.Colors.TAB_INACTIVE)],
                     foreground=[("selected", Cfg.Colors.TAB_TEXT_INACTIVE), ("!selected", Cfg.Colors.TAB_TEXT_INACTIVE)],
                 )
-            notebook.after(interval, lambda: do_blink(count - 1))
+            self._blink_job = notebook.after(interval, lambda: do_blink(count - 1))
 
         do_blink(times * 2)
 
+    def _stop_blink(self):
+        """Beendet ein laufendes Blinken: Timer stoppen, Original-Tab-Text
+        wiederherstellen und die Tab-Farbe an die aktuelle Auswahl anpassen."""
+        if not getattr(self, '_blinking', False):
+            return
+        notebook = self.gui.bottom_notebook
+        if getattr(self, '_blink_job', None) is not None:
+            notebook.after_cancel(self._blink_job)
+            self._blink_job = None
+        self._blinking = False
+        notebook.tab(self._blink_tab_index, text=self._blink_original_text)
+        self._update_tab_style()
+
     def _on_tab_changed(self, event=None):
-        """Aktualisiert die Tab-Farbe nach Selektion."""
+        """Reagiert auf Tab-Wechsel.
+
+        Während des Blinkens: ein bewusster Klick auf einen ANDEREN Tab
+        bricht das Blinken sofort ab und lässt die Navigation zu, statt sie
+        rückgängig zu machen (der programmatische select() beim Blink-Start
+        selbst löst hier keinen Abbruch aus, da er auf den Blink-Tab zeigt).
+        """
         if getattr(self, '_blinking', False) and event is not None:
-            self.gui.bottom_notebook.select(self._blink_tab_index)
+            notebook = self.gui.bottom_notebook
+            if notebook.index(notebook.select()) != self._blink_tab_index:
+                self._stop_blink()
             return
 
+        self._update_tab_style()
+
+    def _update_tab_style(self):
+        """Setzt die Tab-Farbe passend zur aktuell ausgewählten Tab."""
         style    = ttk.Style()
         notebook = self.gui.bottom_notebook
         selected = notebook.index(notebook.select())
@@ -875,8 +901,8 @@ class GuiLayoutManager:
                             or abs(fig.get_figheight() - new_h) > 0.1):
                         fig.set_size_inches(new_w, new_h)
                     canvas.draw_idle()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Figure-Resize (draw_idle) fehlgeschlagen: %s", e)
             _resize_job[0] = canvas_widget.after(100, do_resize)
 
         canvas_widget.bind("<Configure>", on_canvas_resize)
@@ -893,8 +919,8 @@ class GuiLayoutManager:
                             or abs(fig.get_figheight() - new_h) > 0.1):
                         fig.set_size_inches(new_w, new_h)
                     canvas.draw()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Figure-Resize (draw) fehlgeschlagen: %s", e)
 
         plot_window.after(200, _initial_resize)
 

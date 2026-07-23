@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
-from tkinter import messagebox
 
 # ============================================================
 #  IMPORTS – Drittanbieter
@@ -25,6 +24,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 # ============================================================
 #  IMPORTS – Eigene Klassen
 # ============================================================
+from gui_module import meldungen as messagebox
 from gui_module.plot_manager import PlotManager
 from gui_module.analyse_plotter import AnalysePlotter
 from hilfsklassen.daten_verarbeiter import DatenVerarbeiter

@@ -17,17 +17,13 @@ from tkinter import ttk
 # ============================================================
 #  IMPORTS – Drittanbieter
 # ============================================================
-import matplotlib
 import matplotlib.pyplot as plt
-import mplcursors
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import ttkbootstrap as tb
 from matplotlib import gridspec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.transforms import blended_transform_factory
-from scipy.signal import cheby1, freqz
 
 # ============================================================
 #  IMPORTS – Eigene Klassen
@@ -934,14 +930,14 @@ class PlotManager:
                 try:
                     ax_top.axhline(float(np.nanmean(used)),
                                    color=Cfg.Colors.SIGNAL_AVG, linestyle=Cfg.Colors.LINESTYLE_AVG, alpha=0.5, linewidth=1.2)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("AVG-Linie für '%s' konnte nicht gezeichnet werden: %s", hdr, e)
             if show_rms:
                 try:
                     ax_top.axhline(float(np.sqrt(np.nanmean(used**2))),
                                    color=Cfg.Colors.SIGNAL_RMS, linestyle=Cfg.Colors.LINESTYLE_RMS, alpha=0.6, linewidth=1.2)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("RMS-Linie für '%s' konnte nicht gezeichnet werden: %s", hdr, e)
 
         ax_top.set_title(Cfg.Texts.OVERLAY_TITLE)
         ax_top.set_xlabel(Cfg.AxisLabels.TIME)
@@ -970,8 +966,8 @@ class PlotManager:
                         ax_bottom.plot(t, diff, color=colors(i), alpha=0.85,
                                        linestyle=Cfg.Colors.LINESTYLE_DIFF,
                                        label=f"d({hdr})/dt [{unit_diff}]")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Differential-Plot für '%s' konnte nicht gezeichnet werden: %s", hdr, e)
 
                 if show_integral:
                     try:
@@ -980,8 +976,8 @@ class PlotManager:
                         ax_bottom.plot(t, integ, color=colors(i), alpha=0.90,
                                        linestyle=Cfg.Colors.LINESTYLE_INT,
                                        label=f"∫{hdr} dt [{unit_int}]")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Integral-Plot für '%s' konnte nicht gezeichnet werden: %s", hdr, e)
 
             ax_bottom.set_title(Cfg.Texts.DIFF_INT_TITLE)
             ax_bottom.set_xlabel("Zeit [s]")
@@ -1005,8 +1001,8 @@ class PlotManager:
                 ax.set_ylim(ylim)
             try:
                 fig.tight_layout(pad=1.0, h_pad=1.5, w_pad=1.0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("tight_layout beim Zurücksetzen der Achsen fehlgeschlagen: %s", e)
             canvas.draw_idle()
 
         toolbar.home = home_with_reset
@@ -1019,8 +1015,8 @@ class PlotManager:
             try:
                 fig.tight_layout(pad=1.0, h_pad=1.5, w_pad=1.0)
                 canvas.draw_idle()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Canvas-Resize fehlgeschlagen: %s", e)
 
         canvas_widget.bind("<Configure>", on_canvas_resize)
 

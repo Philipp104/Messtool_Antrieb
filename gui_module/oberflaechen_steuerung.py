@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import tkinter as tk
 from datetime import datetime
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 # ============================================================
 #  IMPORTS – Drittanbieter
@@ -25,6 +25,7 @@ import pandas as pd
 # ============================================================
 #  IMPORTS – Eigene Klassen
 # ============================================================
+from gui_module import meldungen as messagebox
 from gui_module.plot_manager import PlotManager
 from hilfsklassen.datei_handler import FileHandler
 from hilfsklassen.filter_manager import FilterManager
@@ -102,8 +103,8 @@ class UiControlManager:
         try:
             entry.unbind('<FocusIn>')
             entry.unbind('<FocusOut>')
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Placeholder-Bindings konnten nicht entfernt werden: %s", e)
 
         def on_focus_in(event):
             is_placeholder = getattr(entry, "_is_placeholder", False)
@@ -194,8 +195,8 @@ class UiControlManager:
         if self.gui.plot_window_manager.active_signal_window is not None:
             try:
                 self.gui.plot_window_manager.active_signal_window.destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Aktives Signalfenster konnte nicht geschlossen werden: %s", e)
             self.gui.plot_window_manager.active_signal_window = None
 
         # --- Datenstatus zurücksetzen ---
@@ -285,8 +286,8 @@ class UiControlManager:
         if self.gui.plot_window_manager.active_signal_window is not None:
             try:
                 self.gui.plot_window_manager.active_signal_window.destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Aktives Signalfenster konnte nicht geschlossen werden: %s", e)
             self.gui.plot_window_manager.active_signal_window = None
 
     def enable_entries_after_load(self):

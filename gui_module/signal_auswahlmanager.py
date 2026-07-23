@@ -10,19 +10,18 @@ Gruppen-Management und Export-Funktionen.
 # ============================================================
 import logging
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import ttk
 
 # ============================================================
 #  IMPORTS – Drittanbieter
 # ============================================================
-import numpy as np
 import ttkbootstrap as tb
 
 # ============================================================
 #  IMPORTS – Eigene Klassen
 # ============================================================
+from gui_module import meldungen as messagebox
 from gui_module.plot_manager import PlotManager
-from hilfsklassen.daten_verarbeiter import DatenVerarbeiter
 from hilfsklassen.zentrales_logging import get_protocol_logger
 from konfiguration import Cfg
 
@@ -61,8 +60,8 @@ class SignalAuswahlManager:
             try:
                 if active_window.winfo_exists():
                     return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Prüfung auf bereits geöffnetes Overlay-Fenster fehlgeschlagen: %s", e)
             active_window = None
 
         if not self.gui.signals or not self.gui.headers or self.gui.t is None:
@@ -299,8 +298,8 @@ class SignalAuswahlManager:
                         child.state(["!disabled"] if enabled else ["disabled"])
                     else:
                         child.config(state="normal" if enabled else "disabled")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Widget-Status (enabled=%s) konnte nicht gesetzt werden: %s", enabled, e)
                 _set_children_state(child, enabled)
 
         def set_group_selection_mode(active: bool):
@@ -314,8 +313,8 @@ class SignalAuswahlManager:
                         widget.state(["!disabled"] if not active else ["disabled"])
                     else:
                         widget.config(state="normal" if not active else "disabled")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Widget-Status im Gruppenauswahl-Modus konnte nicht gesetzt werden: %s", e)
 
         def create_group_manually():
             """Erstellt eine neue Gruppe aus der aktuellen Auswahl."""
@@ -471,15 +470,13 @@ class SignalAuswahlManager:
         #  LISTBOX EVENTS
         # --------------------------------------------------------
 
-        warning_shown = False
-
         def on_listbox_press(event):
             """Setzt Sync-Flag bevor Treeview intern die Selection ändert."""
             _syncing[0] = True
 
         def on_listbox_click(event):
             """Behandelt Klicks auf die Listbox mit Shift-Unterstützung."""
-            nonlocal selected_list, warning_shown
+            nonlocal selected_list
             try:
                 clicked_index = nearest_index(event.y)
                 if clicked_index < 0 or clicked_index >= len(visible_items):
@@ -916,70 +913,14 @@ class SignalAuswahlManager:
                 self.filter_char_button.config(state="disabled")
 
         # --------------------------------------------------------
-        #  EXPORT
-        # --------------------------------------------------------
-
-        def export_selected():
-            """Button-Callback – exportiert ausgewählte Signale nach Excel."""
-            if not selected_list:
-                self.gui.status_label.config(text=Cfg.Texts.STATUS_KEIN_SIGNAL)
-                return
-            if self.gui.t is None or self.gui.dt is None or not self.gui.signals or not self.gui.headers:
-                self.gui.status_label.config(text=Cfg.Texts.EXPORT_KEINE_DATEN)
-                return
-
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".xlsx",
-                filetypes=Cfg.Export.EXCEL_FILETYPES,
-                initialfile=Cfg.Export.MULTI_SIGNALS
-            )
-
-            if not save_path:
-                self.gui.status_label.config(text=Cfg.Texts.EXPORT_ABGEBROCHEN)
-                return
-
-            protocol_logger.info(
-                "EXPORT_MULTI path=%s | signals=%s | avg=%s | rms=%s | diff=%s | integral=%s | filtered=%s",
-                save_path, selected_list,
-                show_avg_var.get(), show_rms_var.get(),
-                show_diff_var.get(), show_integral_var.get(),
-                self.gui.use_filtered_var.get() and self.gui._is_filter_ready(),
-            )
-
-            success, message = DatenVerarbeiter.export_signals_to_excel(
-                save_path=save_path,
-                selected_headers=selected_list,
-                signals=self.gui.signals,
-                units=self.gui.units,
-                t=self.gui.t,
-                dt=self.gui.dt,
-                header_to_signal_idx=header_to_signal_idx,
-                add_avg=show_avg_var.get(),
-                add_rms=show_rms_var.get(),
-                add_diff=show_diff_var.get(),
-                add_int=show_integral_var.get(),
-                use_filtered=self.gui.use_filtered_var.get() and self.gui._is_filter_ready(),
-                filter_manager=self.gui.filter_manager,
-                window_type=(
-                    self.gui.entry6.get().strip()
-                    if hasattr(self.gui, "entry6")
-                    else Cfg.Defaults.FENSTERTYP
-                )
-            )
-
-            self.gui.status_label.config(text=message)
-
-        # --------------------------------------------------------
         #  ACTION BUTTONS
         # --------------------------------------------------------
 
         btn_plot   = ttk.Button(actions_frame, text=Cfg.Texts.BTN_PLOT,   command=plot_selected)
-        btn_export = ttk.Button(actions_frame, text=Cfg.Texts.BTN_EXPORT, command=export_selected)
         btn_clear  = ttk.Button(actions_frame, text=Cfg.Texts.BTN_CLEAR,  command=clear_all)
 
         #Buttons
         btn_plot.pack(side=tk.LEFT, padx=10, pady=10, fill=tk.X, expand=True)
-        btn_export.pack(side=tk.LEFT, padx=10, pady=10, fill=tk.X, expand=True)
         btn_clear.pack(side=tk.LEFT, padx=10, pady=10, fill=tk.X, expand=True)
 
-        action_widgets.extend([btn_plot, btn_export, btn_clear])
+        action_widgets.extend([btn_plot, btn_clear])

@@ -215,9 +215,6 @@ class FileHandler:
                 status_label.config(text=Cfg.Errors.FILE_NOT_FOUND.format(self.file_path))
                 return None, None, None
 
-            with open(self.file_path, 'rb') as f:
-                f.read()
-
             df = pd.read_excel(self.file_path, sheet_name=sheet_name, header=[0, 1], parse_dates=False)
             df.index += 1
 
@@ -531,21 +528,7 @@ class FileHandler:
         temp_headers = [h for h, _ in filtered_pairs]
         temp_units   = [u for _, u in filtered_pairs]
 
-        columns = df.columns.tolist()
-        start_row = 2
-
-        if numeric_columns:
-            logger.info("Setze Standard-Bereich auf numerische Spalten: %d verfügbar", len(numeric_columns))
-            first_numeric_idx = df.columns.get_loc(numeric_columns[0])
-            last_numeric_idx  = df.columns.get_loc(numeric_columns[-1])
-            start_col = first_numeric_idx
-            end_col   = min(last_numeric_idx, first_numeric_idx + 10)
-            logger.info("Standard-Spaltenbereich: %d bis %d (numerische Daten)", start_col, end_col)
-        elif columns:
-            start_col = 0
-            end_col   = min(len(columns) - 1, 10)
-            logger.info("Fallback-Spaltenbereich: %d bis %d", start_col, end_col)
-        else:
+        if not df.columns.tolist():
             status_label.config(text=Cfg.Errors.FILE_NO_COLUMNS)
             return None, None, None
 
@@ -683,9 +666,14 @@ class FileHandler:
                     break
                 except (ModuleNotFoundError, Exception) as e:
                     last_err = e
+                    logger.warning("Excel-Export mit Engine '%s' fehlgeschlagen: %s", eng, e)
 
             # --- CSV-Fallback ---
             if not written:
+                logger.warning(
+                    "Excel-Export mit allen Engines (%s) fehlgeschlagen, letzter Fehler: %s - weiche auf CSV aus",
+                    ", ".join(Cfg.Export.EXCEL_ENGINES), last_err
+                )
                 csv_path = os.path.splitext(save_path)[0] + "_Signal.csv"
                 try:
                     with open(csv_path, "w", newline="", encoding="utf-8") as f:

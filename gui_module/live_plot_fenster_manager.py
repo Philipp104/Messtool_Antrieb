@@ -10,7 +10,7 @@ mit interaktiven Optionen für Signal, FFT, AVG, RMS, Differential und Integral.
 # ============================================================
 import logging
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
 
 # ============================================================
 #  IMPORTS – Drittanbieter
@@ -20,8 +20,8 @@ import numpy as np
 # ============================================================
 #  IMPORTS – Eigene Klassen
 # ============================================================
+from gui_module import meldungen as messagebox
 from gui_module.plot_manager import PlotManager
-from hilfsklassen.datei_handler import FileHandler
 from hilfsklassen.daten_verarbeiter import DatenVerarbeiter
 from hilfsklassen.zentrales_logging import get_protocol_logger
 from konfiguration import Cfg
@@ -74,8 +74,8 @@ class LivePlotFensterManager:
         def _wrapped(*_):
             try:
                 protocol_logger.info("LIVE_PLOT_TOGGLE %s=%s", name, var.get())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("LIVE_PLOT_TOGGLE-Log für '%s' fehlgeschlagen: %s", name, e)
             callback()
         try:
             var.trace_add("write", _wrapped)
@@ -239,102 +239,33 @@ class LivePlotFensterManager:
         # --------------------------------------------------------
 
         def export_current_signal():
-            """Exportiert das aktuelle Signal nach Excel/CSV via FileHandler."""
-            show_avg      = self._get_var(plot_window_data, 'show_avg_var',      False)
-            show_rms      = self._get_var(plot_window_data, 'show_rms_var',      False)
-            show_diff     = self._get_var(plot_window_data, 'show_diff_var',     False)
-            show_integral = self._get_var(plot_window_data, 'show_integral_var', False)
-
-            if self.gui.t is None or not self.gui.signals or not self.gui.headers:
-                self.gui.status_label.config(text="Keine Daten zum Export.")
-                return
-            if self.gui.dt is None:
-                self.gui.status_label.config(text="Kein gültiges dt vorhanden.")
+            """Exportiert den aktuell angezeigten Plot als PNG-Datei."""
+            fig = plot_window_data.get('fig')
+            if fig is None:
+                self.gui.status_label.config(text="Kein Plot zum Export vorhanden.")
                 return
 
-            try:
-                idx = self.gui.headers.index(selected_signal)
-            except ValueError:
-                self.gui.status_label.config(text=f"Signal '{selected_signal}' nicht gefunden.")
-                return
-
-            t        = np.asarray(PlotManager.t_for_idx(self.gui.t, idx))
-            original = np.asarray(self.gui.signals[idx])
-            unit     = self.gui.units[idx] if idx < len(self.gui.units) else ""
-
-            try:
-                filter_aktiv = (
-                    self.gui.use_filtered_var.get()
-                    and self.gui._is_filter_ready()
-                    and self.gui.filter_manager
-                    and self.gui.filter_manager.filter_type != Cfg.Defaults.FILTER_TYP
-                )
-                if filter_aktiv:
-                    used = np.asarray(self.gui.filter_manager.apply_filter(original))
-                    filter_info = {
-                        'filter_type':    self.gui.filter_manager.filter_type,
-                        'characteristic': self.gui.filter_manager.characteristic,
-                        'order':          self.gui.filter_manager.order,
-                        'cutoff1':        self.gui.filter_manager.cutoff_frequency,
-                        'cutoff2':        self.gui.filter_manager.cutoff_frequency2,
-                        'sample_rate':    self.gui.filter_manager.sample_rate,
-                    }
-                else:
-                    used = original
-                    fm   = self.gui.filter_manager
-                    filter_info = {
-                        'filter_type':    Cfg.Defaults.FILTER_TYP,
-                        'characteristic': fm.characteristic if fm else Cfg.Defaults.FILTER_CHARAKTERISTIK,
-                        'order':          fm.order if fm else None,
-                        'cutoff1':        getattr(fm, "cutoff_frequency",  None),
-                        'cutoff2':        getattr(fm, "cutoff_frequency2", None),
-                        'sample_rate':    getattr(fm, "sample_rate",       None),
-                    }
-            except Exception as e:
-                logger.exception("Filterfehler beim Export: %s", e)
-                used = original
-                filter_info = {
-                    'filter_type': Cfg.Defaults.FILTER_TYP,
-                    'characteristic': Cfg.Defaults.FILTER_CHARAKTERISTIK,
-                    'order': None, 'cutoff1': None, 'cutoff2': None, 'sample_rate': None,
-                }
-
-            N = min(len(t), len(original), len(used))
-            if N < 2:
-                self.gui.status_label.config(text="Zu wenige Punkte für Export.")
-                return
-            t, original, used = t[:N], original[:N], used[:N]
-
-            f_axis, amp, phase = DatenVerarbeiter.compute_fft(used, self.gui.dt)
-            window_type = (
-                self.gui.entry6.get().strip() if hasattr(self.gui, "entry6") else Cfg.Defaults.FENSTERTYP
-            ) or Cfg.Defaults.FENSTERTYP
-
+            safe_name = "".join(c if c.isalnum() or c in " _-()" else "_" for c in selected_signal)
             save_path = filedialog.asksaveasfilename(
-                defaultextension=".xlsx",
-                filetypes=[("Excel files", "*.xlsx")],
-                initialfile=f"{selected_signal}_export.xlsx"
+                defaultextension=".png",
+                filetypes=[("PNG-Bild", "*.png")],
+                initialfile=f"{safe_name}.png",
+                parent=plot_window,
             )
             if not save_path:
                 self.gui.status_label.config(text="Export abgebrochen.")
                 return
 
-            protocol_logger.info(
-                "EXPORT_LIVE path=%s | signal=%s | avg=%s | rms=%s | diff=%s | integral=%s | filtered=%s",
-                save_path, selected_signal, show_avg, show_rms, show_diff, show_integral,
-                self.gui.use_filtered_var.get() and self.gui._is_filter_ready(),
-            )
+            protocol_logger.info("EXPORT_LIVE_PNG path=%s | signal=%s", save_path, selected_signal)
 
-            success, message = FileHandler.export_signal_data(
-                save_path=save_path,
-                t=t, original=original, used=used,
-                signal_name=selected_signal, unit=unit, dt=self.gui.dt,
-                f_axis=f_axis, amp=amp, phase=phase,
-                filter_info=filter_info, window_type=window_type,
-                show_avg=show_avg, show_rms=show_rms,
-                show_diff=show_diff, show_integral=show_integral
-            )
-            self.gui.status_label.config(text=message)
+            try:
+                fig.savefig(save_path, dpi=300, bbox_inches="tight", format="png")
+            except Exception as e:
+                logger.exception("Fehler beim PNG-Export: %s", e)
+                self.gui.status_label.config(text=f"Export fehlgeschlagen: {e}")
+                return
+
+            self.gui.status_label.config(text=f"Plot gespeichert unter: {save_path}")
 
         export_button = ttk.Button(toolbar_frame, text=T.LP_EXPORT, command=export_current_signal)
         export_button.pack(side=tk.RIGHT, padx=LP.TOOLBAR_BUTTON_PAD_X, pady=LP.TOOLBAR_PAD_Y)

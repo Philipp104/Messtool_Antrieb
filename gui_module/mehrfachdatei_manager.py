@@ -29,11 +29,12 @@ import numpy as np
 import pandas as pd
 import ttkbootstrap as tb
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog
 
 # ============================================================
 #  IMPORTS - Eigene Klassen
 # ============================================================
+from gui_module import meldungen as messagebox
 from hilfsklassen.datei_handler import FileHandler
 from hilfsklassen.daten_validator import DataValidator
 from hilfsklassen.zentrales_logging import get_protocol_logger
@@ -358,6 +359,9 @@ class MehrfachDateiManager:
         self._step1_frame.pack_forget()
         self._build_step2(self.gui.multi_file_panel)
 
+        self.gui.save_mode.set("none")
+        self.gui.ui_control._set_radiobutton_state("normal")
+
     # --------------------------------------------------------
     #  PANEL AUFBAU (Schritt 2: Datei-Tabs)
     # --------------------------------------------------------
@@ -418,8 +422,8 @@ class MehrfachDateiManager:
             try:
                 if active_window.winfo_exists():
                     active_window.destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Aktives Signalfenster konnte nicht geschlossen werden: %s", e)
             gui.plot_window_manager.active_signal_window = None
 
         if hasattr(self, "_step2_frame") and self._step2_frame.winfo_exists():
@@ -757,6 +761,8 @@ class MehrfachDateiManager:
         if pool_signals:
             summary += f"\n\n{len(pool_signals)} Signale aus {len(erfolgreich)} Datei(en) stehen jetzt gemeinsam in der Signalauswahl zur Verfuegung."
         messagebox.showinfo("Batch abgeschlossen", summary)
+
+        gui.ui_control._set_radiobutton_state("disabled")
 
         # Panel bleibt bewusst auf Schritt 2 (Datei-Tabs mit Ein-/Ausgabewerten)
         # sichtbar statt zur Einzeldatei-Ansicht zu wechseln - siehe

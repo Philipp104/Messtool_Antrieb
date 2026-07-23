@@ -15,8 +15,6 @@ import subprocess
 import time
 import threading
 import logging
-import tempfile
-from datetime import datetime
 from pathlib import Path
 
 # ============================================================
@@ -29,12 +27,13 @@ import ttkbootstrap as tb
 from xhtml2pdf import pisa
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 # ============================================================
 #  IMPORTS – Eigene Klassen
 # ============================================================
+from gui_module import meldungen as messagebox
 from hilfsklassen.zentrales_logging import get_protocol_logger
 from hilfsklassen.datei_handler import FileHandler
 from hilfsklassen.daten_validator import DataValidator
@@ -88,8 +87,6 @@ class GuiManager:
         self.selected_signal           = None
         self.selected_signals          = []
         self.signal_groups             = []
-        self.max_groups                = Cfg.Defaults.MAX_GROUPS
-        self.max_signals_per_selection = Cfg.Defaults.MAX_SIGNALS
 
         # --- Steuerflags ---
         self.reset_active      = False
@@ -211,7 +208,8 @@ class GuiManager:
     def _enter_loading_state(self):
         """Startet Spinner und zeigt Lade-Status."""
         self.loading = True
-        threading.Thread(target=self.loading_animation, daemon=True).start()
+        self._show_loading_gauge()
+        threading.Thread(target=self._wait_for_loading_end, daemon=True).start()
         self.progress_label.config(text=Cfg.Status.GUI_LOADING)
 
     def _exit_loading_state(self):
@@ -219,14 +217,22 @@ class GuiManager:
         self.loading = False
         self.progress_label.config(text="")
 
-    def loading_animation(self):
-        """Steuert den Lade-Spinner."""
+    def _show_loading_gauge(self):
+        """Blendet den Lade-Spinner ein (nur im Main-Thread aufrufen)."""
         self.flood_gauge.pack(side=tk.LEFT, padx=10)
         self.flood_gauge.start()
-        while self.loading:
-            time.sleep(0.1)
+
+    def _hide_loading_gauge(self):
+        """Blendet den Lade-Spinner aus (nur im Main-Thread aufrufen)."""
         self.flood_gauge.stop()
         self.flood_gauge.pack_forget()
+
+    def _wait_for_loading_end(self):
+        """Wartet im Hintergrund-Thread, bis der Lade-Zustand endet, und
+        stößt das Ausblenden des Spinners dann im Main-Thread an."""
+        while self.loading:
+            time.sleep(0.1)
+        self.root.after(0, self._hide_loading_gauge)
 
     # --------------------------------------------------------
     #  DATEN LADEN
@@ -518,23 +524,27 @@ class GuiManager:
             dv = DatenVerarbeiter()
             dv.dt = self.dt
 
-            for i, (signal, header, unit) in enumerate(zip(self.signals, self.headers, self.units)):
-                if save_plots:
-                    PlotManager.save_time_domain_plot(
-                        self.t, signal, header, unit, time_str, i + 1, save_path
-                    )
-                if save_spectrum:
-                    f, sig_abs, sig_arg = dv.calculate_fft(signal, self.t)
-                    if f is not None:
-                        PlotManager.save_frequency_domain_plot(
-                            f, sig_abs, sig_arg, header, unit, i + 100, save_path
+            try:
+                for i, (signal, header, unit) in enumerate(zip(self.signals, self.headers, self.units)):
+                    if save_plots:
+                        PlotManager.save_time_domain_plot(
+                            self.t, signal, header, unit, time_str, i + 1, save_path
                         )
+                    if save_spectrum:
+                        f, sig_abs, sig_arg = dv.calculate_fft(signal, self.t)
+                        if f is not None:
+                            PlotManager.save_frequency_domain_plot(
+                                f, sig_abs, sig_arg, header, unit, i + 100, save_path
+                            )
 
-            if save_plots:
-                PlotManager.save_overview_plot(
-                    self.t, self.signals, self.headers, self.units, time_str, save_path
-                )
-            self.spectrum_save_path = save_path
+                if save_plots:
+                    PlotManager.save_overview_plot(
+                        self.t, self.signals, self.headers, self.units, time_str, save_path
+                    )
+                self.spectrum_save_path = save_path
+            except Exception:
+                logger.exception("Fehler beim Speichern von Plots/Spektren")
+                self.spectrum_save_path = None
 
         self.status_label.config(text=Cfg.Status.GUI_PROCESSING_SUCCESS.format(
             len(self.signals), len(self.headers)
@@ -793,8 +803,8 @@ class GuiManager:
             if fs_txt and "z.B." not in fs_txt and "auswählen" not in fs_txt:
                 # Zahl extrahieren (aus "Samplefrequenz = 20" oder direkt "20")
                 fs = float(fs_txt.split("=")[-1].strip().replace(",", "."))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Samplefrequenz konnte nicht aus Eingabefeld gelesen werden: %s", e)
 
         # Fallback: Samplefrequenz vom Filter-Manager
         if (fs is None or fs <= 0) and fm.sample_rate:

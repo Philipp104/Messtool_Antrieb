@@ -600,10 +600,6 @@ class Defaults:
     FILTER_RESPONSE_LINESTYLE = "-"
     FILTER_RESPONSE_LINEWIDTH = 2
 
-    # --- Signalgruppen (signal_auswahl_manager.py) ---
-    MAX_GROUPS  = 999
-    MAX_SIGNALS = 999
-
 
 # ============================================================
 #  LIMITS – Validierungsgrenzen                (alle Files)
@@ -691,6 +687,7 @@ class Errors:
     # --- Validierung (data_validator.py) ---
     VAL_NEGATIVE_ROW           = "Start-Zeile darf nicht negativ sein"
     VAL_ROW_ORDER              = "Start-Zeile muss kleiner als End-Zeile sein"
+    VAL_START_ROW_OUT_OF_RANGE = "Start-Zeile ({0}) liegt außerhalb des Datenbereichs (maximal verfügbare Zeile: {1})"
     VAL_NEGATIVE_COL           = "Start-Spalte darf nicht negativ sein"
     VAL_COL_ORDER              = "Start-Spalte muss kleiner als End-Spalte sein"
     VAL_INVALID_SAMPLERATE     = "Samplerate muss positiv sein"
@@ -766,6 +763,8 @@ class Status:
     VAL_NO_DATA                = "Keine gültigen Daten geladen"
     VAL_INVALID_FORMAT         = "Falsches Datenformat für {0}"
     VAL_RANGE_ADJUSTED         = "Bereich angepasst: {0} auf {1}"
+    VAL_END_ROW_CLAMPED        = "End-Zeile ({0}) liegt über der maximal verfügbaren Zeile - wurde automatisch auf {1} begrenzt"
+    VAL_END_COL_CLAMPED        = "End-Spalte ({0}) liegt über der maximal verfügbaren Spalte - wurde automatisch auf {1} begrenzt"
 
     # --- Datei-Handler (file_handler.py) ---
     FILE_LOADED                = "Datei erfolgreich geladen - Eingaben vornehmen"
@@ -880,7 +879,7 @@ class Filter:
     """Spezifische Konfiguration für den FilterManager."""
 
     SUPPORTED_TYPES           = ["Kein Filter", "Tiefpass", "Hochpass", "Bandpass"]
-    SUPPORTED_CHARACTERISTICS = ["butterworth", "bessel", "Chebyshev I", "elliptic"]
+    SUPPORTED_CHARACTERISTICS = ["butterworth", "bessel", "Chebyshev I", "Elliptic"]
 
     # Zugriff auf Defaults und Limits via Cfg:
     # Defaults.FILTER_TYP, Defaults.FILTER_CHARAKTERISTIK, Defaults.FILTER_ORDER_INT
@@ -1062,7 +1061,7 @@ class PlotStyle:
 
     # Timeouts (main_ui.py)
     BUTTON_BLINK_DURATION  = 300    # ms
-    BUTTON_BLINK_TIMES     = 25
+    BUTTON_BLINK_TIMES     = 17     # ~10s Gesamtdauer (times * 2 * BUTTON_BLINK_DURATION)
     LOADING_SPINNER_TIMEOUT = 5000  # ms
     PLOT_UPDATE_INTERVAL   = 100    # ms
 

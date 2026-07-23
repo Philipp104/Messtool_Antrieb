@@ -6,22 +6,17 @@ Dieses Tool ermöglicht das Importieren, Verarbeiten und Analysieren von
 Messdaten aus verschiedenen Dateiformaten (Excel, CSV, DWS).
 """
     
-import tkinter as tk
 import sys
 import os
 import logging
 import threading
 from datetime import datetime
-import logging
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Windows-Taskleistensymbol: AppUserModelID vor dem Fenster setzen
-try:
-    import ctypes
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Messtool.Antrieb.App")
-except Exception:
-    pass
+# Alle .pyc-Caches zentral in .pycache/ statt verstreut in __pycache__/-Ordnern
+# neben jeder Datei ablegen (muss vor den Projekt-Imports gesetzt werden).
+sys.pycache_prefix = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".pycache")
 
 from gui_manager import GuiManager
 from hilfsklassen.zentrales_logging import setup_logging, log_session_start, log_session_end
@@ -60,6 +55,14 @@ def get_resource_path(relative_path):
 def main():
     setup_logging(logging.INFO)
     logger = logging.getLogger(__name__)
+
+    # Windows-Taskleistensymbol: AppUserModelID vor dem Fenster setzen
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Messtool.Antrieb.App")
+    except Exception as e:
+        logger.debug("AppUserModelID konnte nicht gesetzt werden (kein Windows?): %s", e)
+
     start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     session_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
     log_session_start(

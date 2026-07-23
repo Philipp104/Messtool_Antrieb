@@ -299,7 +299,7 @@ class FilterManager:
                 self.order, Cfg.Limits.DEFAULT_RIPPLE_DB,
                 cutoff, btype=btype, analog=False, output='sos'
             )
-        elif self.characteristic == "elliptic":
+        elif self.characteristic == "Elliptic":
             return scipy_signal.ellip(
                 self.order, Cfg.Limits.DEFAULT_RIPPLE_DB, Cfg.Limits.DEFAULT_STOP_DB,
                 cutoff, btype=btype, analog=False, output='sos'

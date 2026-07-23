@@ -99,6 +99,7 @@ Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Se
 | **analyse_plotter.py** | 27.5 KB | Analyse-Visualisierung • Multi-Subplot-Layout • Statistische Annotationen • Export-Button pro Tab |
 | **signal_auswahlmanager.py** | 37.5 KB | Signal-Auswahl-Fenster • Gruppen-Management • Signal-Listbox • Filter-Visualisierung |
 | **mehrfachdatei_manager.py** | – | Mehrfachdatei-Import • Batch-Verarbeitung (jede Datei unabhängig) • Signal-Pool-Aufbau • Rückkehr zu Schritt 1 |
+| **meldungen.py** | – | Nicht-blockierende Toast-Benachrichtigungen (Ersatz für `tkinter.messagebox`) • gleiche API wie `messagebox` |
 
 ---
 
@@ -305,7 +306,6 @@ plot_overlay(signal1, signal2, signal3, time_axis)
 ```
 
 **Interaktivität:**
-- Matplotlib Cursor (mplcursors) für Datenpunkt-Inspektion
 - Zoom & Pan mit Maus
 - Toolbar für Speichern/Navigation
 
@@ -520,6 +520,29 @@ Zeitachse pro Signal-Index auf.
 
 ---
 
+## 🔔 Meldungen (Toast-Benachrichtigungen)
+
+Alle Info-/Warn-/Fehlermeldungen im Programm laufen über `gui_module/meldungen.py`
+statt über den klassischen, blockierenden `tkinter.messagebox`-Dialog (mit
+"OK"-Button). Stattdessen erscheint ein nicht-blockierendes Toast
+(`ttkbootstrap.ToastNotification`):
+
+- Erscheint oben rechts über dem jeweiligen Fenster (Fallback: Hauptfenster)
+- Verschwindet automatisch nach ~7 Sekunden, per Klick auch sofort schließbar
+- Mehrere gleichzeitige Meldungen stapeln sich untereinander statt sich zu überlappen
+- Bleibt `topmost`, auch wenn direkt danach andere Fenster in den Vordergrund geholt werden
+
+Bestätigungsdialoge, bei denen tatsächlich auf eine Ja/Nein-Entscheidung gewartet
+werden muss (z. B. `askyesno` beim Löschen einer Signalgruppe), bleiben bewusst
+echte blockierende Dialoge und werden unverändert durchgereicht.
+
+**Verwendung:** Andere Module importieren `messagebox` einfach als Alias auf dieses
+Modul (`from gui_module import meldungen as messagebox`) – bestehender Code, der
+`messagebox.showinfo/showwarning/showerror/askyesno` aufruft, funktioniert dadurch
+unverändert weiter.
+
+---
+
 ## 🔌 Abhängigkeiten
 
 ### Externe Libraries
@@ -532,7 +555,6 @@ openpyxl / xlrd         - Excel-Lesing
 xhtml2pdf               - HTML → PDF Konvertierung
 PIL                     - Bild-Handling
 seaborn                 - Statistische Visualisierung
-mplcursors              - Interaktive Plot-Cursor
 charset_normalizer      - Encoding-Erkennung
 ```
 
@@ -550,7 +572,7 @@ tempfile                - Temp-Dateien
 ```bash
 pip install -r requirements.txt
 # oder einzeln:
-pip install ttkbootstrap matplotlib numpy scipy pandas openpyxl xhtml2pdf pillow seaborn mplcursors charset_normalizer
+pip install ttkbootstrap matplotlib numpy scipy pandas openpyxl xhtml2pdf pillow seaborn charset_normalizer
 ```
 
 ---

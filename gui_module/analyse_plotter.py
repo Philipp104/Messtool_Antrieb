@@ -6,22 +6,20 @@ Signal-, AVG-, RMS-, FFT-, Differential-, Integral-,
 und Statistik-Analysen für Einzel- und Gruppensignale.
 """
 
-import os
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import seaborn as sns
 import logging
 
 logger = logging.getLogger(__name__)
 
+from gui_module import meldungen as messagebox
 from gui_module.plot_manager import PlotManager
-from hilfsklassen.datei_handler import FileHandler
 from konfiguration import Cfg
 
 
@@ -29,72 +27,27 @@ class AnalysePlotter:
     """Klasse für alle Analyse-Plot-Funktionen"""
 
     @staticmethod
-    def _export_signal_entries(entries, dt, is_filtered, filter_manager, window_type, parent_window):
-        """Exportiert eine Liste von Signal-Eintraegen (header/original/filtered/unit/t_local)
-        als je eine Excel-Datei in einen vom Benutzer gewaehlten Ordner - nutzt den
-        echten, bereits vorhandenen Exporter FileHandler.export_signal_data (der bislang
-        von keinem erreichbaren UI-Pfad korrekt aufgerufen wurde)."""
-        if not entries:
-            messagebox.showinfo("Export", "Keine Signale zum Exportieren vorhanden.", parent=parent_window)
+    def _export_figure_as_png(fig, parent_window, default_name="Plot"):
+        """Exportiert die aktuell angezeigte Grafik (fig) als PNG-Datei."""
+        safe_name = "".join(c if c.isalnum() or c in " _-()" else "_" for c in default_name)
+        save_path = filedialog.asksaveasfilename(
+            title="Plot als PNG exportieren",
+            defaultextension=".png",
+            filetypes=[("PNG-Bild", "*.png")],
+            initialfile=f"{safe_name}.png",
+            parent=parent_window,
+        )
+        if not save_path:
             return
 
-        folder = filedialog.askdirectory(title="Zielordner für Export wählen", parent=parent_window)
-        if not folder:
+        try:
+            fig.savefig(save_path, dpi=300, bbox_inches="tight", format="png")
+        except Exception as e:
+            logger.exception("Fehler beim PNG-Export: %s", e)
+            messagebox.showerror("Export fehlgeschlagen", str(e), parent=parent_window)
             return
 
-        if is_filtered and filter_manager:
-            filter_info = {
-                'filter_type':    filter_manager.filter_type,
-                'characteristic': filter_manager.characteristic,
-                'order':          filter_manager.order,
-                'cutoff1':        filter_manager.cutoff_frequency,
-                'cutoff2':        filter_manager.cutoff_frequency2,
-                'sample_rate':    filter_manager.sample_rate,
-            }
-        else:
-            filter_info = {
-                'filter_type': Cfg.Defaults.FILTER_TYP, 'characteristic': Cfg.Defaults.FILTER_CHARAKTERISTIK,
-                'order': None, 'cutoff1': None, 'cutoff2': None, 'sample_rate': None,
-            }
-
-        handler = FileHandler()
-        erfolgreich    = []
-        fehlgeschlagen = []
-
-        for entry in entries:
-            header   = entry["header"]
-            t_sig    = np.asarray(entry["t_local"])
-            original = np.asarray(entry["original"])
-            used     = np.asarray(entry["filtered"])
-            unit     = entry["unit"]
-
-            n = min(len(t_sig), len(original), len(used))
-            if n < 2:
-                fehlgeschlagen.append(f"{header}: zu wenige Punkte für Export")
-                continue
-
-            fft_complex = np.fft.rfft(used[:n])
-            f_axis      = np.fft.rfftfreq(n, dt)
-            amp         = np.abs(fft_complex) * 2 / n
-            phase       = np.angle(fft_complex, deg=True)
-
-            safe_name = "".join(c if c.isalnum() or c in " _-()" else "_" for c in header)
-            save_path = os.path.join(folder, f"{safe_name}_export.xlsx")
-
-            success, message = handler.export_signal_data(
-                save_path=save_path,
-                t=t_sig[:n], original=original[:n], used=used[:n],
-                signal_name=header, unit=unit, dt=dt,
-                f_axis=f_axis, amp=amp, phase=phase,
-                filter_info=filter_info, window_type=window_type or Cfg.Defaults.FENSTERTYP,
-                show_avg=True, show_rms=True, show_diff=True, show_integral=True,
-            )
-            (erfolgreich if success else fehlgeschlagen).append(header if success else f"{header}: {message}")
-
-        summary = f"{len(erfolgreich)} von {len(entries)} Signalen exportiert nach {folder}."
-        if fehlgeschlagen:
-            summary += "\n\nFehler:\n" + "\n".join(fehlgeschlagen)
-        messagebox.showinfo("Export", summary, parent=parent_window)
+        messagebox.showinfo("Export", f"Plot gespeichert unter:\n{save_path}", parent=parent_window)
 
     @staticmethod
     def create_analysis_tab(frame, analyse_typ, selected_headers, signals, units, t, dt,
@@ -476,8 +429,8 @@ class AnalysePlotter:
             ttk.Button(reset_frame, text="Zuruecksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
 
             def _export():
-                AnalysePlotter._export_signal_entries(
-                    signal_list, dt, is_filtered, filter_manager, window_type, frame.winfo_toplevel()
+                AnalysePlotter._export_figure_as_png(
+                    fig, frame.winfo_toplevel(), default_name=f"{analyse_typ}_Plot"
                 )
 
             ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)
@@ -948,8 +901,8 @@ class AnalysePlotter:
             ttk.Button(reset_frame, text="Zuruecksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
 
             def _export():
-                AnalysePlotter._export_signal_entries(
-                    export_entries, dt, is_filtered, filter_manager, window_type, frame.winfo_toplevel()
+                AnalysePlotter._export_figure_as_png(
+                    fig, frame.winfo_toplevel(), default_name=f"{analyse_typ}_Plot"
                 )
 
             ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)

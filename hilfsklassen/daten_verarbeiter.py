@@ -19,7 +19,6 @@ import logging
 # ============================================================
 import numpy as np
 import pandas as pd
-from scipy import signal as scipy_signal
 from scipy.fft import fft, fftfreq
 
 # ============================================================
@@ -176,7 +175,7 @@ class DatenVerarbeiter:
             return False
 
         if len(t) < 2:
-            logger.error(Cfg.Errors.PROC_TOO_FEW_SAMPLES.format(Cfg.Limits.FFT_MIN_SAMPLES))
+            logger.error(Cfg.Errors.PROC_TOO_FEW_SAMPLES.format(2))
             return False
 
         if len(t) > Cfg.Limits.FFT_MAX_SAMPLES:
@@ -201,6 +200,10 @@ class DatenVerarbeiter:
             tuple: (frequencies, amplitude, phase)
         """
         if not self.validate_signal_data(t, y):
+            return None, None, None
+
+        if len(t) < Cfg.Limits.FFT_MIN_SAMPLES:
+            logger.error(Cfg.Errors.PROC_TOO_FEW_SAMPLES.format(Cfg.Limits.FFT_MIN_SAMPLES))
             return None, None, None
 
         N = len(y)
@@ -235,39 +238,6 @@ class DatenVerarbeiter:
             return np.blackman(N)
         else:  # rectangular
             return np.ones(N)
-
-    # --------------------------------------------------------
-    #  FILTER
-    # --------------------------------------------------------
-
-    def apply_filter(self, y, t=None):
-        """
-        Wendet Filter auf Signal an.
-        Args:
-            y: Signalarray
-            t: Zeitarray (optional)
-        Returns:
-            np.array: Gefiltertes Signal
-        """
-        if not self.validate_signal_data(t, y):
-            return None
-
-        nyquist       = 0.5 * self.sample_rate
-        normal_cutoff = self.cutoff_freq / nyquist
-
-        try:
-            sos      = scipy_signal.butter(
-                self.filter_order, normal_cutoff,
-                btype='low', analog=False, output='sos'
-            )
-            filtered = scipy_signal.sosfilt(sos, y)
-            logger.info(Cfg.Logs.PROC_APPLYING_FILTER.format(
-                self.filter_type, self.filter_order, self.cutoff_freq
-            ))
-            return filtered
-        except Exception as e:
-            logger.error(Cfg.Errors.PROC_FILTER_FAILED.format(e))
-            return None
 
     # --------------------------------------------------------
     #  STATISTISCHE KENNWERTE
@@ -343,7 +313,7 @@ class DatenVerarbeiter:
     # --------------------------------------------------------
 
     def export_signal_data(self, save_path, t, y, headers, units,
-                           include_fft=False, include_filtered=False,
+                           include_fft=False,
                            include_avg=False, include_rms=False,
                            include_diff=False, include_integral=False):
         """
@@ -372,11 +342,6 @@ class DatenVerarbeiter:
 
             for signal, header, unit in zip(y, headers, units):
                 data[f"{header} [{unit}]"] = signal
-
-                if include_filtered:
-                    filtered = self.apply_filter(signal, t)
-                    if filtered is not None:
-                        data[f"{header} [{unit}] (Gefiltert)"] = filtered
 
                 if include_avg and len(signal) > 0:
                     avg = self.calculate_avg(signal)
@@ -433,7 +398,7 @@ class DatenVerarbeiter:
     # --------------------------------------------------------
 
     def process_signal(self, t, y, signal_name="Unbekannt",
-                       apply_filter=False, calculate_fft=False,
+                       calculate_fft=False,
                        calculate_avg=False, calculate_rms=False,
                        calculate_diff=False, calculate_integral=False):
         """
@@ -442,7 +407,6 @@ class DatenVerarbeiter:
             t:                  Zeitarray
             y:                  Signalarray
             signal_name:        Name des Signals
-            apply_filter:       Filter anwenden
             calculate_fft:      FFT berechnen
             calculate_avg:      Durchschnitt berechnen
             calculate_rms:      RMS berechnen
@@ -466,12 +430,6 @@ class DatenVerarbeiter:
             if not self.validate_signal_data(t, y):
                 results["status"] = Cfg.Errors.PROC_NO_SIGNAL_DATA
                 return results
-
-            if apply_filter:
-                filtered = self.apply_filter(y, t)
-                if filtered is not None:
-                    results["filtered"] = filtered
-                    logger.info(Cfg.Status.PROC_FILTER_APPLIED.format(self.filter_type))
 
             if calculate_fft:
                 freq, amp, phase = self.calculate_fft(y, t)
