@@ -83,6 +83,7 @@ Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Se
 | **main.py** | 2.6 KB | Einstiegspunkt • Logging-Setup • Session-Tracking • Fehlerbehandlung |
 | **gui_manager.py** | 34.4 KB | Zentrale GUI-Kontrolle • State-Management • Sub-Manager-Koordination |
 | **konfiguration.py** | 46.2 KB | Zentrale Konfiguration für Farben, Fonts, Layouts, Texte, Limits |
+| **conftest.py** | – | Zentralisiert `.pyc`-Caches nach `.pycache/` auch für `pytest`-Läufe (siehe main.py-Mechanismus unten) |
 
 ---
 
@@ -137,6 +138,15 @@ Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Se
 ```
 
 **Besonderheit:** `get_resource_path()` funktioniert sowohl im Dev-Modus als auch im PyInstaller-Executable (nutzt `sys._MEIPASS`).
+
+**`.pyc`-Caches zentral statt verstreut:** `main.py` setzt ganz am Anfang
+`sys.pycache_prefix`, damit alle Bytecode-Caches gebündelt in `.pycache/`
+landen statt als `__pycache__/`-Ordner neben jeder einzelnen Datei. Das gilt
+nur für den Prozess, der tatsächlich über `main.py` startet – deshalb gibt
+es dieselbe Zeile auch in `conftest.py` (für `pytest`-Läufe, die die Module
+direkt importieren). Ad-hoc-Skripte, die Projekt-Module ohne einen dieser
+beiden Einstiegspunkte importieren, umgehen die Umleitung und erzeugen
+wieder verstreute `__pycache__/`-Ordner.
 
 ---
 
@@ -583,6 +593,9 @@ pip install ttkbootstrap matplotlib numpy scipy pandas openpyxl xhtml2pdf pillow
 python -m pytest tests/test_messtool.py -v
 ```
 
+`pytest` ist Teil von `requirements.txt` (nur für Tests benötigt, nicht für den
+normalen App-Betrieb).
+
 **Test-Coverage:**
 - Excel-Spalten-Konvertierung (A→1, AA→27)
 - Filter-Erstellung (Butterworth, Chebyshev, Bessel)
@@ -593,19 +606,24 @@ python -m pytest tests/test_messtool.py -v
 
 ## 📦 PyInstaller Build
 
+Build-Konfiguration liegt in `packaging_sonstige/`:
+
+| Datei | Funktion |
+|-------|----------|
+| **packaging_sonstige/Messtool_Antrieb.spec** | Gepflegte PyInstaller-Spec (Datas, Hidden-Imports für reportlab/xhtml2pdf). Pfade sind über `SPECPATH` relativ zum Projekt-Root aufgelöst, funktioniert unabhängig vom Aufruf-Ordner. |
+| **packaging_sonstige/Executable_Erstellung** | Alternativer Aufruf als reiner CLI-Befehl (ohne Spec-Datei) – muss aus dem Projekt-Root ausgeführt werden. |
+
 ```bash
 pip install pyinstaller
 
-# Einfaches Executable
-pyinstaller --onefile --windowed --name Messtool main.py
+# Empfohlen: über die gepflegte Spec-Datei (von überall aufrufbar)
+python -m PyInstaller packaging_sonstige/Messtool_Antrieb.spec
 
-# Mit Daten-Ordnern
-pyinstaller --onefile --windowed --name Messtool \
-    --add-data "docs_bilder;docs_bilder" \
-    main.py
+# Alternativ: reiner CLI-Befehl aus packaging_sonstige/Executable_Erstellung
+# (dafür ins Projekt-Root wechseln, siehe Kommentar in der Datei)
 
 # Ergebnis
-dist/Messtool.exe
+dist/Messtool_Antrieb/
 ```
 
 ---
@@ -670,7 +688,7 @@ Alle Rechte vorbehalten.
 ## 📞 Kontakt & Support
 
 **Fragen zur Bedienungsanleitung:**
-→ Siehe `docs_bilder/Bedienungsanleitung_Messtool.pdf`
+→ Siehe `projektbeschreibung_bilder/Bedienungsanleitung_Messtool.pdf`
 
 **Fragen zur Architektur:**
 → Siehe dieses README

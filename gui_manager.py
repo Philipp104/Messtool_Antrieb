@@ -892,8 +892,8 @@ class GuiManager:
 
     def show_help(self):
         """Öffnet die Bedienungsanleitung als PDF."""
-        html_path = self.get_resource_path("docs_bilder/Bedienungsanleitung_Messtool.html")
-        pdf_path = self.get_resource_path("docs_bilder/Bedienungsanleitung_Messtool.pdf")
+        html_path = self.get_resource_path("projektbeschreibung_bilder/Bedienungsanleitung_Messtool.html")
+        pdf_path = self.get_resource_path("projektbeschreibung_bilder/Bedienungsanleitung_Messtool.pdf")
 
         if not os.path.exists(html_path):
             protocol_logger.error("HTML-Anleitung nicht gefunden: %s", html_path)

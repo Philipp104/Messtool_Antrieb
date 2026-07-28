@@ -120,7 +120,13 @@ class GuiLayoutManager:
         self._update_tab_style()
 
     def _update_tab_style(self):
-        """Setzt die Tab-Farbe passend zur aktuell ausgewählten Tab."""
+        """Setzt die Tab-Farbe passend zur aktuell ausgewählten Tab.
+
+        Da der ausgewählte Tab einen farbigen Hintergrund bekommt (weißes Icon
+        nötig) und der nicht ausgewählte einen hellen (dunkles Icon nötig),
+        muss das Icon jedes Tabs bei jedem Wechsel neu eingefärbt werden -
+        ein per-Tab-Bild ist in ttk nicht zustandsabhängig stylebar.
+        """
         style    = ttk.Style()
         notebook = self.gui.bottom_notebook
         selected = notebook.index(notebook.select())
@@ -130,6 +136,14 @@ class GuiLayoutManager:
             background=[("selected", tab_color),                ("!selected", Cfg.Colors.TAB_INACTIVE)],
             foreground=[("selected", Cfg.Colors.TAB_TEXT_ACTIVE), ("!selected", Cfg.Colors.TAB_TEXT_INACTIVE)],
         )
+        notebook.tab(0, image=get_icon_image(
+            Cfg.Texts.TAB_EINGABE_ICON, size=14,
+            color=Cfg.Colors.ICON_ON_CARD if selected == 0 else Cfg.Colors.ICON_DEFAULT,
+        ))
+        notebook.tab(1, image=get_icon_image(
+            Cfg.Texts.TAB_AUSGABE_ICON, size=14,
+            color=Cfg.Colors.ICON_ON_CARD if selected == 1 else Cfg.Colors.ICON_DEFAULT,
+        ))
 
     # --------------------------------------------------------
     #  SIDEBAR EIN-/AUSKLAPPEN
@@ -277,7 +291,7 @@ class GuiLayoutManager:
         # Bildgröße nutzt) - Funktionieren schlägt Schärfe, deshalb dabei geblieben.
         try:
             icon_path = self.gui.get_resource_path(
-                os.path.join("docs_bilder", "Giraffe.png")
+                os.path.join("projektbeschreibung_bilder", "Giraffe.png")
             )
             pil_icon = Image.open(icon_path).convert("RGBA")
             tmp = tempfile.NamedTemporaryFile(suffix=".ico", delete=False)
@@ -497,12 +511,14 @@ class GuiLayoutManager:
         self.gui.bottom_expand_btn.pack(side=tk.LEFT, padx=(4, 10), pady=2)
 
         ttk.Button(
-            bottom_rail, text=Cfg.Texts.TAB_EINGABE,
+            bottom_rail, text=f" {Cfg.Texts.TAB_EINGABE}", compound="left",
+            image=get_icon_image(Cfg.Texts.TAB_EINGABE_ICON, size=14, color=Cfg.Colors.ICON_ON_CARD),
             command=lambda: self._expand_bottom_panel_and_select_tab(0)
         ).pack(side=tk.LEFT, padx=4, pady=2)
 
         ttk.Button(
-            bottom_rail, text=Cfg.Texts.TAB_AUSGABE,
+            bottom_rail, text=f" {Cfg.Texts.TAB_AUSGABE}", compound="left",
+            image=get_icon_image(Cfg.Texts.TAB_AUSGABE_ICON, size=14, color=Cfg.Colors.ICON_ON_CARD),
             command=lambda: self._expand_bottom_panel_and_select_tab(1)
         ).pack(side=tk.LEFT, padx=4, pady=2)
 
@@ -518,8 +534,14 @@ class GuiLayoutManager:
         output_tab = ttk.Frame(self.gui.bottom_notebook)
         self._create_input_section(input_tab)
         self._create_output_section(output_tab)
-        self.gui.bottom_notebook.add(input_tab,  text=Cfg.Texts.TAB_EINGABE)
-        self.gui.bottom_notebook.add(output_tab, text=Cfg.Texts.TAB_AUSGABE)
+        self.gui.bottom_notebook.add(
+            input_tab, text=f" {Cfg.Texts.TAB_EINGABE}", compound="left",
+            image=get_icon_image(Cfg.Texts.TAB_EINGABE_ICON, size=14, color=Cfg.Colors.ICON_ON_CARD),
+        )
+        self.gui.bottom_notebook.add(
+            output_tab, text=f" {Cfg.Texts.TAB_AUSGABE}", compound="left",
+            image=get_icon_image(Cfg.Texts.TAB_AUSGABE_ICON, size=14, color=Cfg.Colors.ICON_DEFAULT),
+        )
 
         # --- Mehrfachdatei-Panel (ersetzt bottom_notebook nur wenn mehrere Dateien geladen werden) ---
         self.gui.multi_file_panel = ttk.Frame(bottom_body)
@@ -535,6 +557,7 @@ class GuiLayoutManager:
         )
         self.gui.bottom_notebook.configure(style="Custom.TNotebook")
         self.gui.bottom_notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+        self._update_tab_style()
 
         # --- Sidebar-Inhalt ---
         self._create_sidebar_content(sidebar_inner)
@@ -757,14 +780,17 @@ class GuiLayoutManager:
 
     def _create_input_section(self, parent):
         """Erstellt den Eingabe-Bereich."""
-        card = tk.Frame(parent, bg=Cfg.Colors.TAB_INPUT, bd=0, relief="flat", highlightthickness=0)
+        card = ttk.Frame(parent)
+        Cfg.Styles.force_apply(card, "InputHeader.TFrame")
         card.pack(fill=tk.X, pady=(0, Cfg.Layout.Sidebar.CARD_PAD_Y))
 
-        tk.Label(
-            card, text=Cfg.Texts.TAB_EINGABE, anchor="w",
+        header = ttk.Label(
+            card, text=f" {Cfg.Texts.TAB_EINGABE}", anchor="w", compound="left",
+            image=get_icon_image(Cfg.Texts.TAB_EINGABE_ICON, size=16, color=Cfg.Colors.ICON_ON_CARD),
             font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL, "bold"),
-            fg="white", bg=Cfg.Colors.TAB_INPUT,
-        ).pack(fill=tk.X, padx=Cfg.Layout.InputOutput.HEADER_PAD_X, pady=Cfg.Layout.InputOutput.HEADER_PAD_Y)
+        )
+        Cfg.Styles.force_apply(header, "InputHeader.TLabel")
+        header.pack(fill=tk.X, padx=Cfg.Layout.InputOutput.HEADER_PAD_X, pady=Cfg.Layout.InputOutput.HEADER_PAD_Y)
 
         section = ttk.Frame(card)
         section.pack(fill=tk.BOTH, expand=False,
@@ -780,7 +806,9 @@ class GuiLayoutManager:
                 widget.grid(row=row, column=col, pady=PAD, padx=BG.PADX_ENTRY, sticky=BG.STICKY)
                 widget.bind('<<ComboboxSelected>>', self.gui.on_window_function_changed)
             else:
-                widget = ttk.Entry(section, state="normal", style="EntryPlaceholder.TEntry")
+                widget = ttk.Entry(section, state="normal")
+                # ttkbootstrap verwirft style= im Konstruktor manchmal - separat danach setzen
+                widget.configure(style="EntryPlaceholder.TEntry")
                 widget.grid(row=row, column=col, pady=PAD, padx=BG.PADX_ENTRY, sticky=BG.STICKY)
                 widget.insert(0, placeholder)
                 widget._is_placeholder = True
@@ -799,14 +827,17 @@ class GuiLayoutManager:
 
     def _create_output_section(self, parent):
         """Erstellt den Ausgabe-Bereich."""
-        card = tk.Frame(parent, bg=Cfg.Colors.TAB_OUTPUT, bd=0, relief="flat", highlightthickness=0)
+        card = ttk.Frame(parent)
+        Cfg.Styles.force_apply(card, "OutputHeader.TFrame")
         card.pack(fill=tk.X, pady=(0, Cfg.Layout.Sidebar.CARD_PAD_Y))
 
-        tk.Label(
-            card, text=Cfg.Texts.TAB_AUSGABE, anchor="w",
+        header = ttk.Label(
+            card, text=f" {Cfg.Texts.TAB_AUSGABE}", anchor="w", compound="left",
+            image=get_icon_image(Cfg.Texts.TAB_AUSGABE_ICON, size=16, color=Cfg.Colors.ICON_ON_CARD),
             font=(Cfg.Fonts.FAMILY, Cfg.Fonts.LARGE, "bold"),
-            fg="white", bg=Cfg.Colors.TAB_OUTPUT,
-        ).pack(fill=tk.X, padx=Cfg.Layout.InputOutput.HEADER_PAD_X, pady=Cfg.Layout.InputOutput.HEADER_PAD_Y)
+        )
+        Cfg.Styles.force_apply(header, "OutputHeader.TLabel")
+        header.pack(fill=tk.X, padx=Cfg.Layout.InputOutput.HEADER_PAD_X, pady=Cfg.Layout.InputOutput.HEADER_PAD_Y)
 
         section = ttk.Frame(card)
         section.pack(fill=tk.BOTH, expand=False,
@@ -816,7 +847,7 @@ class GuiLayoutManager:
         PAD = Cfg.Layout.Buttons.SMALL_PAD_Y
 
         def _make_output_entry(placeholder, row, col, columnspan=1):
-            widget = ttk.Entry(section, state="normal", style="EntryPlaceholder.TEntry")
+            widget = ttk.Entry(section, state="normal")
             widget.grid(row=row, column=col, columnspan=columnspan, pady=PAD, padx=BG.PADX_ENTRY, sticky=BG.STICKY)
             widget.delete(0, tk.END)
             widget.insert(0, placeholder)
@@ -872,7 +903,7 @@ class GuiLayoutManager:
     def _create_logo_background(self, parent):
         """Stadler-Logo als Hintergrundbild in der Mid-Region."""
         try:
-            bild_pfad = self.gui.get_resource_path("docs_bilder/stadler_blue_rgb.png")
+            bild_pfad = self.gui.get_resource_path("projektbeschreibung_bilder/stadler_blue_rgb.png")
             bild      = Image.open(bild_pfad)
 
             stadler_width  = Cfg.Layout.Global.LOGO_WIDTH
@@ -959,6 +990,16 @@ class GuiLayoutManager:
             "info_text_widget": info_text_widget,
         }
 
+    def _set_panel_labelwidget(self, labelframe, text, icon):
+        """Setzt ein Icon+Text-Label (violett, wie Panel.TLabelframe) als Titel eines LabelFrames."""
+        label = ttk.Label(
+            labelframe, text=f" {text}", compound="left",
+            image=get_icon_image(icon, size=14, color=Cfg.Colors.THEME_ACCENT),
+            font=(Cfg.Fonts.FAMILY, Cfg.Fonts.MEDIUM, "bold"),
+        )
+        Cfg.Styles.force_apply(label, "PanelHeader.TLabel")
+        labelframe.configure(labelwidget=label)
+
     def create_signal_selection_layout(self, on_window_close):
         """Erstellt das Layout des Signalauswahl-Bereichs in der Mid-Region."""
         for widget in self.gui.mid_region.winfo_children():
@@ -966,16 +1007,20 @@ class GuiLayoutManager:
                 widget.destroy()
 
         select_window = ttk.Frame(self.gui.mid_region)
+        Cfg.Styles.force_apply(select_window, "Page.TFrame")
         select_window.pack(fill=tk.BOTH, expand=True)
 
         # --- Header ---
         header_frame = ttk.Frame(select_window)
+        Cfg.Styles.force_apply(header_frame, "Page.TFrame")
         header_frame.pack(fill=tk.X, padx=Cfg.Layout.Sidebar.PAD_X, pady=(Cfg.Layout.Buttons.SMALL_PAD_Y, 0))
 
-        ttk.Label(
+        header_label = ttk.Label(
             header_frame, text=Cfg.Texts.SIGNAL_SELECT_HEADER,
             font=(Cfg.Fonts.FAMILY, Cfg.Fonts.LARGE)
-        ).pack(side=tk.LEFT)
+        )
+        Cfg.Styles.force_apply(header_label, "Page.TLabel")
+        header_label.pack(side=tk.LEFT)
 
         # --- Suche ---
         search_var   = tk.StringVar()
@@ -986,22 +1031,23 @@ class GuiLayoutManager:
         selected_display_var = tk.StringVar(value=Cfg.Texts.NO_SIGNALS_SELECTED)
         selected_display_style = ttk.Style()
         selected_display_style.configure("SelectedDisplay.TEntry", foreground="blue")
-        ttk.Entry(
+        selected_display_entry = ttk.Entry(
             select_window, textvariable=selected_display_var,
             font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL), state="readonly",
-            style="SelectedDisplay.TEntry",
-        ).pack(pady=Cfg.Layout.Buttons.SMALL_PAD_Y, padx=Cfg.Layout.Sidebar.PAD_X, fill=tk.X)
+        )
+        Cfg.Styles.force_apply(selected_display_entry, "SelectedDisplay.TEntry")
+        selected_display_entry.pack(pady=Cfg.Layout.Buttons.SMALL_PAD_Y, padx=Cfg.Layout.Sidebar.PAD_X, fill=tk.X)
 
         # --- Aktionen (zuerst packen → immer am unteren Rand sichtbar) ---
         actions_frame = ttk.Frame(select_window)
+        Cfg.Styles.force_apply(actions_frame, "Page.TFrame")
         actions_frame.pack(side=tk.BOTTOM, pady=Cfg.Layout.Buttons.PAD_Y)
 
         # --- Optionen (zuerst packen → immer am unteren Rand sichtbar) ---
-        opts_frame = ttk.LabelFrame(
-            select_window, text=Cfg.Texts.LBL_OPTIONS,
-            padding=Cfg.Layout.InputOutput.SECTION_PAD_Y
-        )
+        opts_frame = ttk.LabelFrame(select_window, padding=Cfg.Layout.InputOutput.SECTION_PAD_Y)
+        Cfg.Styles.force_apply(opts_frame, "Panel.TLabelframe")
         opts_frame.pack(side=tk.BOTTOM, padx=Cfg.Layout.Sidebar.PAD_X, pady=Cfg.Layout.Buttons.PAD_Y, fill=tk.X)
+        self._set_panel_labelwidget(opts_frame, Cfg.Texts.LBL_OPTIONS, Cfg.Texts.CARD_VERARBEITUNG_ICON)
 
         # --- Paned Window für Listbox und Gruppen (mit Splitter) ---
         paned_window = ttk.PanedWindow(select_window, orient=tk.VERTICAL)
@@ -1010,12 +1056,14 @@ class GuiLayoutManager:
 
         # --- Listbox ---
         list_frame = ttk.Frame(paned_window)
+        Cfg.Styles.force_apply(list_frame, "Panel.TFrame")
         paned_window.add(list_frame, weight=1)
 
         listbox = ttk.Treeview(list_frame, show="tree", selectmode="extended")
+        Cfg.Styles.force_apply(listbox, "SignalList.Treeview")
         listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # --- Treeview Font konfigurieren ---
+        # --- Treeview Font konfigurieren (SignalList.Treeview erbt davon, siehe Cfg.Styles.register) ---
         select_style = ttk.Style(select_window)
         select_style.configure("Treeview", font=(Cfg.Fonts.FAMILY, Cfg.Fonts.PLOT))
 
@@ -1024,22 +1072,30 @@ class GuiLayoutManager:
         listbox.configure(yscrollcommand=list_scrollbar.set)
 
         # --- Gruppen ---
-        groups_frame = ttk.LabelFrame(
-            paned_window, text=Cfg.Texts.LBL_GROUPS,
-            padding=Cfg.Layout.InputOutput.SECTION_PAD_Y
-        )
-        paned_window.add(groups_frame, weight=0)
+        # Eigene Page-farbene Wrapper-Pane, damit ein kleiner Abstand zwischen der
+        # Listbox-Pane (Sash) und dem violetten LabelFrame-Rahmen entsteht - eine
+        # ttk.PanedWindow-Pane selbst kennt kein Padding, nur der innere Wrapper.
+        groups_wrapper = ttk.Frame(paned_window)
+        Cfg.Styles.force_apply(groups_wrapper, "Page.TFrame")
+        paned_window.add(groups_wrapper, weight=0)
+
+        groups_frame = ttk.LabelFrame(groups_wrapper, padding=Cfg.Layout.InputOutput.SECTION_PAD_Y)
+        Cfg.Styles.force_apply(groups_frame, "Panel.TLabelframe")
+        groups_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self._set_panel_labelwidget(groups_frame, Cfg.Texts.LBL_GROUPS, Cfg.Texts.CARD_SIGNAL_ICON)
 
         group_buttons_frame = ttk.Frame(groups_frame)
+        Cfg.Styles.force_apply(group_buttons_frame, "Panel.TFrame")
         group_buttons_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
 
-        groups_canvas    = tk.Canvas(groups_frame, highlightthickness=0, height=120)
+        groups_canvas    = tk.Canvas(groups_frame, highlightthickness=0, height=120, bg=Cfg.Colors.PANEL_BG)
         groups_scrollbar = ttk.Scrollbar(groups_frame, orient="vertical", command=groups_canvas.yview)
         groups_canvas.configure(yscrollcommand=groups_scrollbar.set)
         groups_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         groups_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         groups_container = ttk.Frame(groups_canvas)
+        Cfg.Styles.force_apply(groups_container, "Panel.TFrame")
         groups_canvas_window = groups_canvas.create_window((0, 0), window=groups_container, anchor="nw")
 
         def _on_groups_configure(event):
@@ -1060,6 +1116,7 @@ class GuiLayoutManager:
             "groups_container":    groups_container,
             "groups_canvas":       groups_canvas,
             "groups_frame":        groups_frame,
+            "groups_wrapper":      groups_wrapper,
             "paned_window":        paned_window,
             "group_buttons_frame": group_buttons_frame,
             "opts_frame":          opts_frame,

@@ -1,1 +1,6 @@
-python -m PyInstaller --onedir --windowed --name Messtool_Antrieb --add-data "docs_bilder:docs_bilder" --collect-all reportlab --hidden-import=reportlab.graphics.barcode.code128 --hidden-import=reportlab.graphics.barcode.code39 --hidden-import=reportlab.graphics.barcode.code93 --hidden-import=reportlab.graphics.barcode.eanbc --hidden-import=reportlab.graphics.barcode.qr --hidden-import=reportlab.graphics.barcode.usps --hidden-import=reportlab.graphics.barcode.usps4s --hidden-import=reportlab.graphics.barcode.dmtx --hidden-import=xhtml2pdf main.py
+# Ausführen aus dem Projekt-Root (nicht aus packaging_sonstige/) - die Pfade
+# "projektbeschreibung_bilder" und "main.py" sind relativ zum Projekt-Root.
+# Alternativ: packaging_sonstige/Messtool_Antrieb.spec verwenden (z.B.
+# "python -m PyInstaller packaging_sonstige/Messtool_Antrieb.spec"), die kennt
+# ihren eigenen Pfad über SPECPATH und funktioniert unabhängig vom Aufrufort.
+python -m PyInstaller --onedir --windowed --name Messtool_Antrieb --add-data "projektbeschreibung_bilder:projektbeschreibung_bilder" --collect-all reportlab --hidden-import=reportlab.graphics.barcode.code128 --hidden-import=reportlab.graphics.barcode.code39 --hidden-import=reportlab.graphics.barcode.code93 --hidden-import=reportlab.graphics.barcode.eanbc --hidden-import=reportlab.graphics.barcode.qr --hidden-import=reportlab.graphics.barcode.usps --hidden-import=reportlab.graphics.barcode.usps4s --hidden-import=reportlab.graphics.barcode.dmtx --hidden-import=xhtml2pdf main.py

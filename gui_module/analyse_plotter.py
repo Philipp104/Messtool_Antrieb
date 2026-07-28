@@ -117,6 +117,7 @@ class AnalysePlotter:
             sns.set_theme(style="whitegrid")
             sns.set_context("notebook")
             sns.set_palette("husl")
+            plt.rcParams.update(Cfg.PlotStyle.MPL_RCPARAMS)  # sns.set_theme() setzt figure.facecolor zurück auf Weiß
 
             n_signals = len(selected_headers)
             colors = sns.color_palette("husl", n_signals)
@@ -573,6 +574,7 @@ class AnalysePlotter:
             sns.set_theme(style="whitegrid")
             sns.set_context("notebook")
             sns.set_palette("husl")
+            plt.rcParams.update(Cfg.PlotStyle.MPL_RCPARAMS)  # sns.set_theme() setzt figure.facecolor zurück auf Weiß
 
             cleaned_groups = []
             for group in grouped_headers or []:

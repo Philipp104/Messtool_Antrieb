@@ -134,6 +134,7 @@ class SignalAuswahlManager:
         groups_container     = layout["groups_container"]
         groups_canvas        = layout["groups_canvas"]
         groups_frame         = layout["groups_frame"]
+        groups_wrapper       = layout["groups_wrapper"]
         paned_window         = layout["paned_window"]
         group_buttons_frame  = layout["group_buttons_frame"]
         opts_frame           = layout["opts_frame"]
@@ -219,9 +220,7 @@ class SignalAuswahlManager:
         # --------------------------------------------------------
 
         style = ttk.Style(select_window)
-        style.configure("Group.TFrame")
         style.configure("GroupSelected.TFrame", background=Cfg.Colors.GROUP_SELECTED_BG)
-        style.configure("Group.TLabel",         foreground=Cfg.Colors.GROUP_LABEL)
         style.configure("GroupSelected.TLabel", foreground=Cfg.Colors.GROUP_LABEL, background=Cfg.Colors.GROUP_SELECTED_BG)
 
         selected_group_indices = {"indices": []}
@@ -241,6 +240,7 @@ class SignalAuswahlManager:
             for i, group_data in enumerate(self.gui.signal_groups):
                 is_selected = i in selected_group_indices["indices"]
                 group_frame = ttk.Frame(groups_container)
+                Cfg.Styles.force_apply(group_frame, "GroupSelected.TFrame" if is_selected else "Panel.TFrame")
                 group_frame.pack(fill=tk.X, padx=5, pady=2)
 
                 if is_selected:
@@ -261,6 +261,7 @@ class SignalAuswahlManager:
                     ),
                     anchor="w",
                 )
+                Cfg.Styles.force_apply(group_label, "GroupSelected.TLabel" if is_selected else "Panel.TLabel")
                 group_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
                 if len(group_signals) > 3:
@@ -292,8 +293,8 @@ class SignalAuswahlManager:
             # die Canvas-Höhe!), damit auch group_buttons_frame ("Gruppe erstellen"/
             # "Gruppe(n) löschen") und der LabelFrame-Rahmen genug Platz behalten
             # und nicht abgeschnitten werden.
-            groups_frame.update_idletasks()
-            total_height = groups_frame.winfo_reqheight()
+            groups_wrapper.update_idletasks()
+            total_height = groups_wrapper.winfo_reqheight()
 
             paned_window.update_idletasks()
             pw_height = paned_window.winfo_height()

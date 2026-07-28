@@ -77,6 +77,13 @@ class Colors:
     # --- Fenster-Hintergrund (muss zu Styles.register_catppuccin_theme "bg" passen) ---
     WINDOW_BG = "#eff1f5"  # Catppuccin Latte Base
 
+    # --- Signalauswahl-Bereich: helle Seite vs. graue Panels (Listbox/Gruppen) ---
+    PAGE_BG  = "#ffffff"  # Neutrale Seiten-Fläche (Header, Aktionen)
+    PANEL_BG = "#e9ecef"  # Abgesetzte Panels (Signal-Auswahl-Liste, Signal-Gruppen, Optionen)
+
+    # --- Theme-Akzent (muss zu "primary" in Styles.register_catppuccin_theme passen) ---
+    THEME_ACCENT = "#8839ef"  # Catppuccin Latte Mauve
+
     CARD_MAP = {
         "danger":    DANGER,
         "primary":   PRIMARY,
@@ -224,6 +231,48 @@ class Styles:
             (Styles.GREEN_LABEL, Colors.CARD_SIGNAL),
         ]:
             _s.configure(name, background=color, foreground="white", anchor = "w")
+
+        # --- Signalauswahl: weiße Seite vs. graue Panels (Listbox/Gruppen/Optionen) ---
+        _s.configure("Page.TFrame",  background=Colors.PAGE_BG)
+        _s.configure("Page.TLabel",  background=Colors.PAGE_BG)
+
+        _s.configure("Panel.TFrame", background=Colors.PANEL_BG)
+        _s.configure("Panel.TLabel", background=Colors.PANEL_BG)
+        _s.configure("SignalList.Treeview", background=Colors.PANEL_BG, fieldbackground=Colors.PANEL_BG)
+
+        # --- Eingabe-/Ausgabedaten-Kartenheader (unteres Panel) ---
+        _s.configure("InputHeader.TFrame",  background=Colors.TAB_INPUT)
+        _s.configure("InputHeader.TLabel",  background=Colors.TAB_INPUT,  foreground="white")
+        _s.configure("OutputHeader.TFrame", background=Colors.TAB_OUTPUT)
+        _s.configure("OutputHeader.TLabel", background=Colors.TAB_OUTPUT, foreground="white")
+
+        # Panel-Rahmen violett wie der Theme-Akzent. Label-Hintergrund = PANEL_BG
+        # (nicht PAGE_BG/weiß) - sonst entsteht an der Ecke, wo der Rahmen unter dem
+        # Titel-Label durchläuft, ein sichtbarer Farb-Versatz (ttk-Rendering-Eigenheit
+        # bei Labelframe+labelwidget: die Eckverbindung ist 1-2px ungenau, was nur
+        # auffällt, wenn Label- und Panel-Hintergrund unterschiedliche Farben haben).
+        _s.configure(
+            "Panel.TLabelframe",
+            background=Colors.PANEL_BG,
+            bordercolor=Colors.THEME_ACCENT,
+            lightcolor=Colors.THEME_ACCENT,
+            darkcolor=Colors.THEME_ACCENT,
+            relief="solid",
+            borderwidth=1,
+        )
+        _s.configure(
+            "Panel.TLabelframe.Label",
+            background=Colors.PANEL_BG,
+            foreground=Colors.THEME_ACCENT,
+        )
+        # Eigenständiges Label-Widget für labelwidget=... (muss auf ".TLabel" enden,
+        # sonst bekommt es kein Layout und bleibt unsichtbar/0x0 - "Panel.TLabelframe.Label"
+        # ist nur das interne Element EINES LabelFrames, kein Style für ein Label-Widget!)
+        _s.configure(
+            "PanelHeader.TLabel",
+            background=Colors.PANEL_BG,
+            foreground=Colors.THEME_ACCENT,
+        )
 
     @staticmethod
     def register_catppuccin_theme():
@@ -430,8 +479,10 @@ class Texts:
     ERROR        = "Fehler"
 
     # --- Tabs ---
-    TAB_EINGABE  = "📥 Eingabedaten"
-    TAB_AUSGABE  = "📤 Ausgabedaten"
+    TAB_EINGABE      = "Eingabedaten"
+    TAB_EINGABE_ICON = ""  # Import (wie CARD_IMPORT_ICON)
+    TAB_AUSGABE      = "Ausgabedaten"
+    TAB_AUSGABE_ICON = ""  # Save (wie BTN_SPEICHERPFAD_ICON)
 
     # --- Sidebar-Karten ---
     # Icons als Segoe-MDL2-Assets-Codepoints (siehe Fonts.ICON_FAMILY) statt

@@ -289,7 +289,8 @@ class MehrfachDateiManager:
         content.pack(fill=tk.X, padx=20, pady=20)
 
         ttk.Label(content, text="Samplefrequenz:").grid(row=0, column=0, sticky="w", padx=8, pady=8)
-        samplerate_entry = ttk.Entry(content, width=20, style="EntryPlaceholder.TEntry")
+        samplerate_entry = ttk.Entry(content, width=20)
+        samplerate_entry.configure(style="EntryPlaceholder.TEntry")
         samplerate_entry.insert(0, Cfg.Ph.SAMPLERATE)
         samplerate_entry._is_placeholder = True
         samplerate_entry.grid(row=0, column=1, sticky="w", padx=8, pady=8)

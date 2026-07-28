@@ -8,3 +8,6 @@ scipy==1.17.0
 seaborn==0.13.2
 openpyxl==3.1.5
 charset_normalizer==3.4.4
+
+# Nur für Tests (siehe README: python -m pytest tests/test_messtool.py -v)
+pytest==9.1.1
