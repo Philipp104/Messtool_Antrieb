@@ -50,6 +50,34 @@ class AnalysePlotter:
         messagebox.showinfo("Export", f"Plot gespeichert unter:\n{save_path}", parent=parent_window)
 
     @staticmethod
+    def _fft_amplitude(y, dt, window_type):
+        """Amplitudenspektrum (einseitig) mit Fensterfunktion und korrekter Normierung.
+
+        Ohne Fenster (rechteckig) leckt Energie benachbarter Frequenzen in jeden Bin
+        (Leck-Effekt) und verschmiert Peaks. Die Fensterfunktion (Hanning/Hamming/
+        Blackman) reduziert das, kostet aber Amplitude - deshalb Normierung auf
+        sum(window) statt N. DC- und (bei geradem N) Nyquist-Bin haben kein
+        gespiegeltes Gegenstück und werden daher nicht verdoppelt.
+        """
+        n = len(y)
+        if window_type == "hanning":
+            window = np.hanning(n)
+        elif window_type == "hamming":
+            window = np.hamming(n)
+        elif window_type == "blackman":
+            window = np.blackman(n)
+        else:  # rectangular / None
+            window = np.ones(n)
+
+        freq = np.fft.rfftfreq(n, dt)
+        fft_complex = np.fft.rfft(y * window)
+        amplitude = np.abs(fft_complex) * 2 / window.sum()
+        amplitude[0] /= 2
+        if n % 2 == 0:
+            amplitude[-1] /= 2
+        return freq, amplitude, fft_complex
+
+    @staticmethod
     def create_analysis_tab(frame, analyse_typ, selected_headers, signals, units, t, dt,
                             header_to_signal_idx, use_filtered, filter_manager,
                             start_zeit=None, ende_zeit=None, timestamps=None, window_type=None):
@@ -263,19 +291,14 @@ class AnalysePlotter:
                         PlotManager._configure_ax(ax, f"Integral [{unit_int}]", show_legend=False)
 
                     elif ptype == "Amplitude":
-                        n = len(filtered)
-                        freq = np.fft.rfftfreq(n, dt)
-                        fft_complex = np.fft.rfft(filtered)
-                        fft_amp = np.abs(fft_complex) * 2 / n
+                        freq, fft_amp, _ = AnalysePlotter._fft_amplitude(filtered, dt, window_type)
                         sns.lineplot(x=freq, y=fft_amp, ax=ax, color=color)
                         ax.set_title(f"{header} - Amplitudenspektrum [{unit}]")
                         signal_data[ax] = (freq, fft_amp)
                         PlotManager._configure_ax(ax, "Amplitude", show_legend=False)
 
                     elif ptype == "Phase":
-                        n = len(filtered)
-                        freq = np.fft.rfftfreq(n, dt)
-                        fft_complex = np.fft.rfft(filtered)
+                        freq, _, fft_complex = AnalysePlotter._fft_amplitude(filtered, dt, window_type)
                         fft_phase = np.angle(fft_complex, deg=True)
                         sns.lineplot(x=freq, y=fft_phase, ax=ax, color=color)
                         ax.set_title(f"{header} - Phasenspektrum [Grad]")
@@ -371,7 +394,7 @@ class AnalysePlotter:
 
             axis_mode_combo.bind("<<ComboboxSelected>>", _on_axis_mode_changed)
 
-            ttk.Label(control_frame, text="Synchroner Zoom:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            ttk.Label(control_frame, text="Synchron:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
             sync_enabled = {}
             show_all_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
@@ -390,6 +413,32 @@ class AnalysePlotter:
                     sync_enabled[ptype] = var
                     cb = ttk.Checkbutton(control_frame, text=ptype, variable=var)
                     cb.pack(side="left", padx=5)
+
+            ttk.Label(control_frame, text="Cursor:", font=("Arial", 10, "bold")).pack(side="left", padx=(15, 5))
+
+            cursor_single_var = tk.BooleanVar(value=True)
+            cursor_multi_var  = tk.BooleanVar(value=False)
+
+            def _on_cursor_single_toggle():
+                if cursor_single_var.get():
+                    cursor_multi_var.set(False)
+                else:
+                    cursor_single_var.set(True)
+
+            def _on_cursor_multi_toggle():
+                if cursor_multi_var.get():
+                    cursor_single_var.set(False)
+                else:
+                    cursor_multi_var.set(True)
+
+            ttk.Checkbutton(
+                control_frame, text="Einer", variable=cursor_single_var,
+                command=_on_cursor_single_toggle
+            ).pack(side="left", padx=5)
+            ttk.Checkbutton(
+                control_frame, text="Mehrere", variable=cursor_multi_var,
+                command=_on_cursor_multi_toggle
+            ).pack(side="left", padx=5)
 
             def _is_time_axis(ax):
                 return ax in time_axes
@@ -417,6 +466,7 @@ class AnalysePlotter:
                 range_selected_callback=_on_cursor_range_selected,
                 range_cleared_callback=_on_cursor_range_cleared,
                 selection_filter=_is_time_axis,
+                multi_cursor_var=cursor_multi_var,
             )
 
             reset_frame = ttk.Frame(frame)
@@ -426,7 +476,7 @@ class AnalysePlotter:
                 if hasattr(fig, "_reset_zoom_selection"):
                     fig._reset_zoom_selection()
 
-            ttk.Button(reset_frame, text="Zuruecksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
+            ttk.Button(reset_frame, text="Zurücksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
 
             def _export():
                 AnalysePlotter._export_figure_as_png(
@@ -436,6 +486,9 @@ class AnalysePlotter:
             ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)
 
             fig.tight_layout()
+            # Rand links/rechts reservieren, damit Legende (rechts, ausserhalb)
+            # und Gruppen-Cursorboxen (links, ausserhalb) nicht abgeschnitten werden.
+            fig.subplots_adjust(left=0.16, right=0.8)
 
             fig_height_px = int(fig.get_figheight() * fig.get_dpi())
             fig_width_px = int(fig.get_figwidth() * fig.get_dpi())
@@ -728,19 +781,14 @@ class AnalysePlotter:
 
                     elif ptype == "Amplitude":
                         for sig in group_signals:
-                            n = len(sig["filtered"])
-                            freq = np.fft.rfftfreq(n, dt)
-                            fft_complex = np.fft.rfft(sig["filtered"])
-                            fft_amp = np.abs(fft_complex) * 2 / n
+                            freq, fft_amp, _ = AnalysePlotter._fft_amplitude(sig["filtered"], dt, window_type)
                             sns.lineplot(x=freq, y=fft_amp, ax=ax, linewidth=1.2, label=sig["header"])
                             signal_data.setdefault(ax, []).append((freq, fft_amp, sig["header"]))
                         PlotManager._configure_ax(ax, "Amplitude", show_legend=True)
 
                     elif ptype == "Phase":
                         for sig in group_signals:
-                            n = len(sig["filtered"])
-                            freq = np.fft.rfftfreq(n, dt)
-                            fft_complex = np.fft.rfft(sig["filtered"])
+                            freq, _, fft_complex = AnalysePlotter._fft_amplitude(sig["filtered"], dt, window_type)
                             fft_phase = np.angle(fft_complex, deg=True)
                             sns.lineplot(x=freq, y=fft_phase, ax=ax, linewidth=1.2, label=sig["header"])
                             signal_data.setdefault(ax, []).append((freq, fft_phase, sig["header"]))
@@ -843,7 +891,7 @@ class AnalysePlotter:
 
             axis_mode_combo.bind("<<ComboboxSelected>>", _on_axis_mode_changed)
 
-            ttk.Label(control_frame, text="Synchroner Zoom:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            ttk.Label(control_frame, text="Synchron:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
             sync_enabled = {}
             show_all_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
@@ -862,6 +910,32 @@ class AnalysePlotter:
                     sync_enabled[ptype] = var
                     cb = ttk.Checkbutton(control_frame, text=ptype, variable=var)
                     cb.pack(side="left", padx=5)
+
+            ttk.Label(control_frame, text="Cursor:", font=("Arial", 10, "bold")).pack(side="left", padx=(15, 5))
+
+            cursor_single_var = tk.BooleanVar(value=True)
+            cursor_multi_var  = tk.BooleanVar(value=False)
+
+            def _on_cursor_single_toggle():
+                if cursor_single_var.get():
+                    cursor_multi_var.set(False)
+                else:
+                    cursor_single_var.set(True)
+
+            def _on_cursor_multi_toggle():
+                if cursor_multi_var.get():
+                    cursor_single_var.set(False)
+                else:
+                    cursor_multi_var.set(True)
+
+            ttk.Checkbutton(
+                control_frame, text="Einer", variable=cursor_single_var,
+                command=_on_cursor_single_toggle
+            ).pack(side="left", padx=5)
+            ttk.Checkbutton(
+                control_frame, text="Mehrere", variable=cursor_multi_var,
+                command=_on_cursor_multi_toggle
+            ).pack(side="left", padx=5)
 
             def _is_time_axis(ax):
                 return ax in time_axes
@@ -889,6 +963,7 @@ class AnalysePlotter:
                 range_selected_callback=_on_cursor_range_selected,
                 range_cleared_callback=_on_cursor_range_cleared,
                 selection_filter=_is_time_axis,
+                multi_cursor_var=cursor_multi_var,
             )
 
             reset_frame = ttk.Frame(frame)
@@ -898,7 +973,7 @@ class AnalysePlotter:
                 if hasattr(fig, "_reset_zoom_selection"):
                     fig._reset_zoom_selection()
 
-            ttk.Button(reset_frame, text="Zuruecksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
+            ttk.Button(reset_frame, text="Zurücksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
 
             def _export():
                 AnalysePlotter._export_figure_as_png(
@@ -908,6 +983,9 @@ class AnalysePlotter:
             ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)
 
             fig.tight_layout()
+            # Rand links/rechts reservieren, damit Legende (rechts, ausserhalb)
+            # und Gruppen-Cursorboxen (links, ausserhalb) nicht abgeschnitten werden.
+            fig.subplots_adjust(left=0.16, right=0.8)
 
             fig_height_px = int(fig.get_figheight() * fig.get_dpi())
             fig_width_px = int(fig.get_figwidth() * fig.get_dpi())

@@ -19,7 +19,6 @@ import logging
 # ============================================================
 import numpy as np
 import pandas as pd
-from scipy.fft import fft, fftfreq
 
 # ============================================================
 #  IMPORTS – Eigene Klassen
@@ -206,6 +205,9 @@ class DatenVerarbeiter:
             logger.error(Cfg.Errors.PROC_TOO_FEW_SAMPLES.format(Cfg.Limits.FFT_MIN_SAMPLES))
             return None, None, None
 
+        # Lazy Import: scipy.fft nur bei tatsächlicher FFT-Berechnung laden (~1,7s Startzeitersparnis)
+        from scipy.fft import fft, fftfreq
+
         N = len(y)
         if t is not None:
             T                = t[-1] - t[0]
@@ -222,8 +224,15 @@ class DatenVerarbeiter:
         phase       = np.angle(fft_result[:N//2])
 
         if self.normalize:
-            amplitude /= N
-            logger.info(Cfg.Logs.PROC_NORMALIZING.format(1.0 / N))
+            # Einseitiges Spektrum: Faktor 2, da die Energie jeder AC-Frequenz sich auf
+            # den positiven und negativen Frequenzanteil aufteilt (hier wird nur die
+            # positive Hälfte zurückgegeben). Normierung auf window.sum() statt N,
+            # da die Fensterfunktion sonst systematisch zu niedrige Amplituden liefert
+            # (z.B. Hanning ~50% Amplitudenverlust). DC-Anteil (Index 0) hat kein
+            # gespiegeltes Gegenstück und wird daher nicht verdoppelt.
+            amplitude = amplitude * 2 / window.sum()
+            amplitude[0] /= 2
+            logger.info(Cfg.Logs.PROC_NORMALIZING.format(2.0 / window.sum()))
 
         logger.info(Cfg.Logs.PROC_CALC_FFT.format(N, self.window_type))
         return frequencies, amplitude, phase

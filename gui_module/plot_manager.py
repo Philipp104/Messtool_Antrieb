@@ -29,6 +29,7 @@ from matplotlib.transforms import blended_transform_factory
 #  IMPORTS – Eigene Klassen
 # ============================================================
 from hilfsklassen.zentrales_logging import get_protocol_logger
+from gui_module.gui_hilfsfunktionen import center_window
 from konfiguration import Cfg
 
 # ============================================================
@@ -117,7 +118,10 @@ class PlotManager:
             color=Cfg.Colors.GRID_COLOR
         )
         if show_legend:
-            ax.legend(loc="upper right", fontsize=Cfg.Fonts.Plots.LEGEND)
+            ax.legend(
+                loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0,
+                fontsize=Cfg.Fonts.Plots.LEGEND
+            )
 
     @staticmethod
     def _hide_xticklabels(axes_list):
@@ -153,9 +157,16 @@ class PlotManager:
         sync_enabled=None,
         range_selected_callback=None,
         range_cleared_callback=None,
-        selection_filter=None
+        selection_filter=None,
+        multi_cursor_var=None
     ):
-        """Fügt interaktiven Cursor, Selektion und Zoom zu einem Plot hinzu."""
+        """Fügt interaktiven Cursor, Selektion und Zoom zu einem Plot hinzu.
+
+        multi_cursor_var: optionale tk.BooleanVar. Ist sie True ("Mehrere"),
+        setzt ein Klick einen bleibenden Cursor (statt der Zoom-Selektion)
+        an der geklickten Stelle - synchronisiert über dieselben Achsgruppen
+        wie der Hover-Cursor.
+        """
         vlines         = {}
         hlines         = {}
         annotations    = {}
@@ -165,7 +176,11 @@ class PlotManager:
         selection_lines   = {}
         selection_markers = {}
         original_limits   = {}
-        hover_state    = {"ax": None, "x": None, "y": None}
+        hover_state    = {"ax": None, "x": None, "y": None, "axes": set()}
+        MULTI_ANN_X         = -0.02  # feste X-Position (Achsen-Fraktion) für Gruppen-Cursorboxen, links AUSSERHALB des Plots
+        pinned_cursors      = {ax: [] for ax in axes}
+        pinned_color_cycle  = plt.cm.tab10.colors
+        pinned_click_state  = {"count": 0}
 
         for ax in axes:
             saved_xlim = ax.get_xlim()
@@ -195,10 +210,11 @@ class PlotManager:
                     for line in ax.get_lines()
                     if not line.get_label().startswith('_')
                 }
-                # x folgt Cursor (data), y fix in Achsen-Fraktion → immer sichtbar
-                _blend    = blended_transform_factory(ax.transData, ax.transAxes)
+                # Feste Position oben links in Achsen-Fraktion (folgt NICHT dem
+                # Cursor auf der X-Achse), damit die Boxen bei Gruppensignalen
+                # nicht Teile des Signals oder die Legende (oben rechts) verdecken.
                 _n        = len(_series_init)
-                _step     = min(0.13, 0.90 / max(_n, 1))
+                _step     = min(0.18, 0.95 / max(_n, 1))
                 _ann_list = []
                 _yfracs   = []
                 for _i, _s in enumerate(_series_init):
@@ -208,9 +224,9 @@ class PlotManager:
                     _yfracs.append(_yfrac)
                     _ann   = ax.annotate(
                         '',
-                        xy=(0, _yfrac), xycoords=_blend,
-                        xytext=(10, 0), textcoords='offset points',
-                        ha='left', va='top',
+                        xy=(MULTI_ANN_X, _yfrac), xycoords=ax.transAxes,
+                        xytext=(0, 0), textcoords='offset points',
+                        ha='right', va='top',
                         fontsize=Cfg.Fonts.Plots.LEGEND,
                         color=_col,
                         bbox=dict(boxstyle='round', facecolor=Cfg.Colors.ANNOTATION_BG,
@@ -333,6 +349,110 @@ class PlotManager:
             ax.set_xlim(new_xlim)
             ax.set_ylim(new_ylim)
 
+        def _get_synced_axes(ax):
+            """Achsen, die gemeinsam mit ax den Cursor anzeigen sollen (folgt der
+            'Synchron'-Einstellung der jeweiligen Achsengruppe, wie beim Zoom)."""
+            if axes_groups:
+                for group_name, group_axes in axes_groups.items():
+                    if ax in group_axes and len(group_axes) > 1:
+                        sync_on = True
+                        if sync_enabled and group_name in sync_enabled:
+                            sync_on = sync_enabled[group_name].get()
+                        return set(group_axes) if sync_on else {ax}
+            return {ax}
+
+        def _apply_cursor_to_axis(ax, x_target):
+            """Zeigt den Cursor (Fadenkreuz + Annotation) in ax am nächsten
+            Datenpunkt zu x_target an."""
+            series_list = _get_series_list(ax)
+            if not series_list:
+                return
+            xdata0, ydata0 = series_list[0][:2]
+            x_arr0 = np.array(xdata0)
+            if len(x_arr0) == 0:
+                return
+            idx0   = int(np.argmin(np.abs(x_arr0 - x_target)))
+            x_snap = x_arr0[idx0]
+            y_snap = np.array(ydata0)[idx0]
+
+            vlines[ax].set_xdata([x_snap, x_snap])
+            hlines[ax].set_ydata([y_snap, y_snap])
+            vlines[ax].set_visible(True)
+            hlines[ax].set_visible(True)
+
+            ann_list = annotations[ax]
+            if len(series_list) > 1:
+                _yf = ann_yfracs.get(ax, [])
+                for series, ann, _yfrac in zip(series_list, ann_list, _yf):
+                    _xd, _yd = series[:2]
+                    _lbl     = series[2] if len(series) >= 3 else ""
+                    _idx     = int(np.argmin(np.abs(np.array(_xd) - x_snap)))
+                    _yv      = float(np.array(_yd)[_idx])
+                    ann.set_text(f"{_lbl}\nx={x_snap:.3f}  y={_yv:.3f}")
+                    ann.xy = (MULTI_ANN_X, _yfrac)
+                    ann.set_visible(True)
+            else:
+                ann = ann_list[0]
+                ann.set_text(f"x={x_snap:.3f}\ny={y_snap:.3f}")
+                ann.xy = (x_snap, y_snap)
+                ann.set_visible(True)
+
+        def _hide_cursor_on_axis(ax):
+            vlines[ax].set_visible(False)
+            hlines[ax].set_visible(False)
+            for _a in annotations[ax]:
+                _a.set_visible(False)
+
+        def _next_pinned_color():
+            """Jeweils zwei aufeinanderfolgende Klicks (=Cursor-Paare) teilen sich
+            dieselbe Farbe, danach wechselt die Farbe."""
+            pair_idx = pinned_click_state["count"] // 2
+            color    = pinned_color_cycle[pair_idx % len(pinned_color_cycle)]
+            pinned_click_state["count"] += 1
+            return color
+
+        def _place_pinned_cursor(ax, x_target, color):
+            """Setzt einen bleibenden Cursor (Linie + Wert-Label) in ax am
+            nächsten Datenpunkt zu x_target."""
+            series_list = _get_series_list(ax)
+            if not series_list:
+                return
+            xdata0, ydata0 = series_list[0][:2]
+            x_arr0 = np.array(xdata0)
+            if len(x_arr0) == 0:
+                return
+            idx0   = int(np.argmin(np.abs(x_arr0 - x_target)))
+            x_snap = x_arr0[idx0]
+            y_snap = np.array(ydata0)[idx0]
+
+            vline = ax.axvline(
+                x=x_snap, color=color,
+                linestyle=Cfg.Colors.CURSOR_LINESTYLE,
+                linewidth=Cfg.Colors.CURSOR_LINEWIDTH,
+                alpha=Cfg.Colors.CURSOR_ALPHA,
+            )
+            y_frac = 0.97 - (len(pinned_cursors[ax]) % 6) * 0.08
+            blend  = blended_transform_factory(ax.transData, ax.transAxes)
+            ann = ax.annotate(
+                f"x={x_snap:.3f}\ny={y_snap:.3f}",
+                xy=(x_snap, y_frac), xycoords=blend,
+                xytext=(6, 0), textcoords='offset points',
+                ha='left', va='top', fontsize=Cfg.Fonts.Plots.LEGEND,
+                color=color,
+                bbox=dict(boxstyle='round', facecolor=Cfg.Colors.ANNOTATION_BG,
+                          edgecolor=color, alpha=Cfg.Colors.ANNOTATION_BOX_ALPHA),
+                annotation_clip=False,
+            )
+            pinned_cursors[ax].append((vline, ann))
+
+        def _clear_pinned_cursors():
+            for ax, entries in pinned_cursors.items():
+                for vline, ann in entries:
+                    vline.remove()
+                    ann.remove()
+                pinned_cursors[ax] = []
+            pinned_click_state["count"] = 0
+
         # --- Event Handler ---
 
         def on_move(event):
@@ -348,20 +468,18 @@ class PlotManager:
             x_snap = best["x"]
             y_snap = best["y"]
 
-            if hover_state["ax"] != ax:
-                prev_ax = hover_state["ax"]
-                if prev_ax is not None:
-                    vlines[prev_ax].set_visible(False)
-                    hlines[prev_ax].set_visible(False)
-                    for _a in annotations[prev_ax]:
-                        _a.set_visible(False)
-                hover_state["ax"] = ax
+            synced_axes = _get_synced_axes(ax)
 
-            if hover_state["x"] == x_snap and hover_state["y"] == y_snap:
+            if hover_state["x"] == x_snap and hover_state["y"] == y_snap and hover_state["ax"] == ax:
                 return
 
-            hover_state["x"] = x_snap
-            hover_state["y"] = y_snap
+            for stale_ax in hover_state["axes"] - synced_axes:
+                _hide_cursor_on_axis(stale_ax)
+
+            hover_state["ax"]   = ax
+            hover_state["x"]    = x_snap
+            hover_state["y"]    = y_snap
+            hover_state["axes"] = synced_axes
 
             vlines[ax].set_xdata([x_snap, x_snap])
             hlines[ax].set_ydata([y_snap, y_snap])
@@ -373,12 +491,20 @@ class PlotManager:
             if len(series_list) > 1:
                 _yf = ann_yfracs.get(ax, [])
                 for series, ann, _yfrac in zip(series_list, ann_list, _yf):
-                    _xd, _yd = series[:2]
-                    _lbl     = series[2] if len(series) >= 3 else ""
-                    _idx     = int(np.argmin(np.abs(np.array(_xd) - x_snap)))
-                    _yv      = float(np.array(_yd)[_idx])
+                    _xd, _yd   = series[:2]
+                    _lbl       = series[2] if len(series) >= 3 else ""
+                    _idx       = int(np.argmin(np.abs(np.array(_xd) - x_snap)))
+                    _yv        = float(np.array(_yd)[_idx])
+                    _is_active = bool(best["label"]) and _lbl == best["label"]
                     ann.set_text(f"{_lbl}\nx={x_snap:.3f}  y={_yv:.3f}")
-                    ann.xy = (x_snap, _yfrac)
+                    ann.xy = (MULTI_ANN_X, _yfrac)
+                    ann.set_fontweight('bold' if _is_active else 'normal')
+                    ann.set_fontsize(Cfg.Fonts.Plots.LEGEND + (2 if _is_active else 0))
+                    _bbox_patch = ann.get_bbox_patch()
+                    if _bbox_patch is not None:
+                        _bbox_patch.set_linewidth(2.2 if _is_active else 1.0)
+                        _bbox_patch.set_alpha(0.95 if _is_active else Cfg.Colors.ANNOTATION_BOX_ALPHA)
+                    ann.set_zorder(6 if _is_active else 5)
                     ann.set_visible(True)
             else:
                 ann   = ann_list[0]
@@ -386,6 +512,13 @@ class PlotManager:
                 ann.set_text(f"{_pre}x={x_snap:.3f}\ny={y_snap:.3f}")
                 ann.xy = (x_snap, y_snap)
                 ann.set_visible(True)
+
+            # --- Cursor synchron in den übrigen Achsen der Gruppe anzeigen ---
+            for other_ax in synced_axes:
+                if other_ax is ax:
+                    continue
+                _apply_cursor_to_axis(other_ax, x_snap)
+
             fig.canvas.draw_idle()
 
         def on_click(event):
@@ -393,8 +526,17 @@ class PlotManager:
                 return
 
             ax   = event.inaxes
+            if ax not in signal_data:
+                return
             best = _find_best_snap(ax, event)
             if best is None:
+                return
+
+            if multi_cursor_var is not None and multi_cursor_var.get():
+                color = _next_pinned_color()
+                for target_ax in _get_synced_axes(ax):
+                    _place_pinned_cursor(target_ax, best["x"], color)
+                fig.canvas.draw_idle()
                 return
 
             start_x                = selection_start.get(ax)
@@ -483,13 +625,10 @@ class PlotManager:
             ax = event.inaxes
             if ax is None:
                 return
-            if ax in vlines:
-                vlines[ax].set_visible(False)
-                hlines[ax].set_visible(False)
-                for _a in annotations[ax]:
-                    _a.set_visible(False)
-                if hover_state["ax"] == ax:
-                    hover_state.update({"ax": None, "x": None, "y": None})
+            if ax in vlines and hover_state["ax"] == ax:
+                for synced_ax in hover_state["axes"]:
+                    _hide_cursor_on_axis(synced_ax)
+                hover_state.update({"ax": None, "x": None, "y": None, "axes": set()})
             fig.canvas.draw_idle()
 
         def reset_selection():
@@ -505,6 +644,7 @@ class PlotManager:
                     xlim, ylim = original_limits[ax]
                     ax.set_xlim(xlim)
                     ax.set_ylim(ylim)
+            _clear_pinned_cursors()
             fig.canvas.draw_idle()
             if range_cleared_callback:
                 widget = getattr(fig.canvas, "get_tk_widget", None)
@@ -719,6 +859,8 @@ class PlotManager:
         ttk.Button(button_frame, text="OK",        command=berechnen,       width=10).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Abbrechen", command=dialog.destroy,  width=10).pack(side=tk.LEFT, padx=5)
 
+        center_window(dialog)
+
     # --------------------------------------------------------
     #  SPEICHERN – Zeitbereich / Frequenzbereich / Übersicht
     # --------------------------------------------------------
@@ -820,7 +962,7 @@ class PlotManager:
                     linewidth=Cfg.Colors.LINEWIDTH_ORIGINAL, color=Cfg.Colors.SIGNAL_ORIGINAL)
             ax.set_ylabel(f"[{unit}]", fontsize=Cfg.Fonts.Plots.LEGEND)
             PlotManager._apply_fine_grid(ax)
-            ax.legend(loc='upper right', fontsize=Cfg.Fonts.Plots.LEGEND)
+            ax.legend(loc='upper right', fontsize=Cfg.Fonts.Plots.LEGEND, framealpha=0.4)
             ax.tick_params(labelsize=Cfg.Fonts.SMALL)
             if plot_i == num_signals - 1:
                 ax.set_xlabel(Cfg.AxisLabels.TIME, fontsize=Cfg.Fonts.Plots.LEGEND)
@@ -1021,6 +1163,7 @@ class PlotManager:
         canvas_widget.bind("<Configure>", on_canvas_resize)
 
         canvas.draw()
+        center_window(overlay_window)
 
     @staticmethod
     def plot_signal_analysis(

@@ -315,6 +315,9 @@ class UiControlManager:
         protocol_logger.info("UI_SELECT reset=%s", selected)
         if selected == Cfg.Texts.RESET_KOMPLETT_DESC:
             self.reset_all()
+            if hasattr(self.gui, 'layout_manager'):
+                self.gui.layout_manager.expand_sidebar_if_collapsed()
+                self.gui.layout_manager.expand_bottom_panel_if_collapsed()
         elif selected == Cfg.Texts.RESET_EINGABE_DESC:
             # Bei mehreren Dateien (Mehrfachdatei-Panel aktiv): nicht die normale
             # Einzeldatei-Eingabe zuruecksetzen (die geladenen Dateien sollen
@@ -322,10 +325,12 @@ class UiControlManager:
             # Schritt 1 (Samplefrequenz/Fensterfunktion).
             if hasattr(self.gui, "multi_file_manager") and self.gui.multi_file_manager.is_active():
                 self.gui.multi_file_manager.return_to_step1()
-                return
-            self.reset_inputs()
-            self.gui.flood_gauge.stop()
-            self.gui.flood_gauge.pack_forget()
+            else:
+                self.reset_inputs()
+                self.gui.flood_gauge.stop()
+                self.gui.flood_gauge.pack_forget()
+            if hasattr(self.gui, 'layout_manager'):
+                self.gui.layout_manager.expand_bottom_panel_if_collapsed()
 
     def on_sheet_selected(self, event):
         """Handler für Sheet-Auswahl in Excel-Dateien."""
@@ -419,6 +424,8 @@ class UiControlManager:
 
         for line in info_text.splitlines():
             info_text_widget.insert("", tk.END, values=(line,))
+
+        self.gui.center_window(self.gui.characteristic_window)
 
     def update_filter_plot(self):
         """Aktualisiert den Filter-Frequenzgang-Plot."""

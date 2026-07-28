@@ -199,7 +199,7 @@ class MehrfachDateiManager:
         dialog.title("Dateien auswählen")
         dialog.transient(gui.root)
         dialog.grab_set()
-        dialog.geometry("500x420")
+        gui.center_window(dialog, 500, 420)
         gui.apply_icon(dialog)
 
         protocol_logger.info("FILE_ACCUMULATOR_OPEN initial=%s", len(acc_paths))

@@ -70,6 +70,13 @@ class Colors:
     SECONDARY = "#6c757d"
     DANGER    = "#dc3545"
 
+    # --- Icons (Segoe MDL2 Assets, siehe gui_hilfsfunktionen.get_icon_image) ---
+    ICON_DEFAULT = "#4c4f69"  # passend zur aktuellen Theme-Textfarbe (Catppuccin Latte)
+    ICON_ON_CARD = "#ffffff"  # für Icons auf farbigen Card-Headern (weisser Text dort)
+
+    # --- Fenster-Hintergrund (muss zu Styles.register_catppuccin_theme "bg" passen) ---
+    WINDOW_BG = "#eff1f5"  # Catppuccin Latte Base
+
     CARD_MAP = {
         "danger":    DANGER,
         "primary":   PRIMARY,
@@ -219,6 +226,56 @@ class Styles:
             _s.configure(name, background=color, foreground="white", anchor = "w")
 
     @staticmethod
+    def register_catppuccin_theme():
+        """Registriert die Catppuccin-Farbschemata als ttkbootstrap-Themes
+        ("catppuccin_mocha" dunkel, "catppuccin_latte" hell). Muss VOR
+        tb.Window(...) aufgerufen werden, da ttkbootstrap USER_THEMES beim
+        Erzeugen des Style-Objekts einliest."""
+        from ttkbootstrap.themes.user import USER_THEMES
+        USER_THEMES["catppuccin_mocha"] = {
+            "type": "dark",
+            "colors": {
+                "primary":   "#cba6f7",  # Mauve
+                "secondary": "#7f849c",  # Overlay1
+                "success":   "#a6e3a1",  # Green
+                "info":      "#94e2d5",  # Teal
+                "warning":   "#fab387",  # Peach
+                "danger":    "#f38ba8",  # Red
+                "light":     "#313244",  # Surface0
+                "dark":      "#11111b",  # Crust
+                "bg":        "#1e1e2e",  # Base
+                "fg":        "#cdd6f4",  # Text
+                "selectbg":  "#b4befe",  # Lavender
+                "selectfg":  "#11111b",  # Crust
+                "border":    "#45475a",  # Surface1
+                "inputfg":   "#cdd6f4",  # Text
+                "inputbg":   "#313244",  # Surface0
+                "active":    "#45475a",  # Surface1
+            },
+        }
+        USER_THEMES["catppuccin_latte"] = {
+            "type": "light",
+            "colors": {
+                "primary":   "#8839ef",  # Mauve
+                "secondary": "#8c8fa1",  # Overlay1
+                "success":   "#40a02b",  # Green
+                "info":      "#179299",  # Teal
+                "warning":   "#fe640b",  # Peach
+                "danger":    "#d20f39",  # Red
+                "light":     "#eff1f5",  # Base
+                "dark":      "#4c4f69",  # Text
+                "bg":        "#eff1f5",  # Base
+                "fg":        "#4c4f69",  # Text
+                "selectbg":  "#7287fd",  # Lavender
+                "selectfg":  "#eff1f5",  # Base
+                "border":    "#acb0be",  # Surface2
+                "inputfg":   "#4c4f69",  # Text
+                "inputbg":   "#e6e9ef",  # Mantle
+                "active":    "#ccd0da",  # Surface0
+            },
+        }
+
+    @staticmethod
     def force_apply(widget, style_name):
         widget.tk.call(widget._w, 'configure', '-style', style_name)
 
@@ -234,6 +291,8 @@ class Layout:
         PAD_X        = 10
         PAD_Y        = 8
         SIDEBAR_WIDTH = 700
+        SIDEBAR_COLLAPSED_WIDTH = 64
+        BOTTOM_COLLAPSED_HEIGHT = 64
         LOGO_WIDTH   = 400
         LOGO_ASPECT  = 80 / 500
         CARD_PAD_X   = 6
@@ -375,27 +434,40 @@ class Texts:
     TAB_AUSGABE  = "📤 Ausgabedaten"
 
     # --- Sidebar-Karten ---
+    # Icons als Segoe-MDL2-Assets-Codepoints (siehe Fonts.ICON_FAMILY) statt
+    # bunter, theme-fremder Emoji-Zeichen - über gui_hilfsfunktionen.get_icon_image()
+    # gerendert.
     CARD_IMPORT_TITLE      = "Datenimport"
-    CARD_IMPORT_ICON       = "📥"
+    CARD_IMPORT_ICON       = ""  # Import
     CARD_VERARBEITUNG_TITLE = "Datenverarbeitung"
-    CARD_VERARBEITUNG_ICON  = "🛠"
+    CARD_VERARBEITUNG_ICON  = ""  # Settings (Zahnrad)
     CARD_SIGNAL_TITLE      = "Signalverarbeitung"
-    CARD_SIGNAL_ICON       = "📈"
+    CARD_SIGNAL_ICON       = ""  # LineChart
     CARD_ALLGEMEIN_TITLE   = "Allgemeines"
-    CARD_ALLGEMEIN_ICON    = "ℹ"
-    CARD_ICON_SPACING      = 1  # Leerzeichen nach dem Icon
+    CARD_ALLGEMEIN_ICON    = ""  # Info
+    CARD_ICON_SPACING      = 1  # Leerzeichen nach dem Icon (Text-Icon-Fallback)
+
+    # --- Sidebar Ein-/Ausklappen ---
+    SIDEBAR_COLLAPSE_ICON  = ""  # ChevronLeft
+    SIDEBAR_EXPAND_ICON    = ""  # ChevronRight
+
+    # --- Unteres Panel (Notebook) Ein-/Ausklappen ---
+    BOTTOM_COLLAPSE_ICON   = ""  # ChevronDown
+    BOTTOM_EXPAND_ICON     = ""  # ChevronUp
 
     # --- Buttons (main_ui.py) ---
     BTN_IMPORT          = "Messdaten Import"
     BTN_VERARBEITUNG    = "Datenverarbeitung"
     BTN_SIGNALE         = "Signalverarbeitung"
-    BTN_RESET_KOMPLETT_ICON = "🗑"
+    BTN_RESET_KOMPLETT_ICON = ""  # Delete
     BTN_RESET_KOMPLETT_TEXT = "Komplett"
-    BTN_RESET_EINGABE_ICON = "🧽"
+    BTN_RESET_EINGABE_ICON = ""  # EraseTool
     BTN_RESET_EINGABE_TEXT = "Eingaben"
     BTN_HILFE           = "Hilfe"
-    BTN_HERKUNFTSPFAD   = "Datei-Herkunftspfad"
-    BTN_SPEICHERPFAD    = "Spektrum-Speicherpfad"
+    BTN_HERKUNFTSPFAD   = "📂 Datei-Herkunftspfad"
+    BTN_SPEICHERPFAD    = "💾 Spektrum-Speicherpfad"
+    BTN_HERKUNFTSPFAD_ICON = ""  # FolderOpen
+    BTN_SPEICHERPFAD_ICON  = ""  # Save
     BTN_CLOSE           = "✕"
     BTN_OK              = "OK"
     BTN_CANCEL          = "Abbrechen"
@@ -457,7 +529,7 @@ class Texts:
     BTN_CLEAR                  = "Auswahl löschen"
 
     # --- Filter-Dialog (filter_manager.py, signal_auswahl_manager.py) ---
-    BTN_FILTER                 = "Filter einstellen"
+    BTN_FILTER                 = "Filter"
     FILTER_CHAR_WINDOW_TITLE   = "Filter-Charakteristik"
     FILTER_DIALOG_TITEL        = "Filter einstellen"
     FILTER_PARAM_SECTION_TITLE = "Filter-Parameter"
@@ -1052,6 +1124,10 @@ class PlotStyle:
         "grid.linestyle":  Colors.GRID_LINESTYLE,
         "grid.alpha":      Colors.GRID_ALPHA,
         "axes.grid":       True,
+        # Figure-Rand an Fenster-Theme angleichen (Achsenfläche bleibt weiß/whitegrid),
+        # sonst wirkt der Plot als grell-weißer Kasten vor dem Catppuccin-Hintergrund.
+        "figure.facecolor":  Colors.WINDOW_BG,
+        "savefig.facecolor": "white",  # Exporte/PNGs bleiben für Druck/Report weiß
     }
 
     # Plot-Parameter (gui_config.py)

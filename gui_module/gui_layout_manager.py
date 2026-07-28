@@ -27,6 +27,7 @@ from PIL import Image, ImageTk
 #  IMPORTS – Eigene Klassen
 # ============================================================
 from konfiguration import Cfg
+from gui_module.gui_hilfsfunktionen import get_icon_image, force_icon_refresh
 
 # ============================================================
 #  LOGGING
@@ -131,12 +132,120 @@ class GuiLayoutManager:
         )
 
     # --------------------------------------------------------
+    #  SIDEBAR EIN-/AUSKLAPPEN
+    # --------------------------------------------------------
+
+    def _toggle_sidebar(self):
+        """Klappt die linke Sidebar ein oder aus.
+
+        Eingeklappt bleibt nur eine schmale Leiste mit einem
+        Lesezeichen-Button sichtbar, über den die Sidebar wieder
+        ausgeklappt werden kann.
+        """
+        if not self.gui.sidebar_collapsed:
+            self._collapse_sidebar()
+        else:
+            self._expand_sidebar()
+
+    def _collapse_sidebar(self):
+        gui = self.gui
+        gui.sidebar_header.pack_forget()
+        gui.sidebar_body.pack_forget()
+        gui.sidebar_rail.pack(fill=tk.BOTH, expand=True)
+        gui.main_pane.sashpos(0, Cfg.Layout.Global.SIDEBAR_COLLAPSED_WIDTH)
+        gui.sidebar_collapsed = True
+
+    def _expand_sidebar(self):
+        gui = self.gui
+        gui.sidebar_rail.pack_forget()
+        gui.sidebar_header.pack(fill=tk.X, side=tk.TOP)
+        gui.sidebar_body.pack(fill=tk.BOTH, expand=True)
+        gui.main_pane.sashpos(0, Cfg.Layout.Global.SIDEBAR_WIDTH)
+        gui.sidebar_collapsed = False
+
+    def collapse_sidebar_if_expanded(self):
+        """Klappt die Sidebar automatisch ein, z.B. nach erfolgreicher Datenverarbeitung.
+
+        Rührt eine bereits (manuell) eingeklappte Sidebar nicht an.
+        """
+        if not self.gui.sidebar_collapsed:
+            self._collapse_sidebar()
+
+    def expand_sidebar_if_collapsed(self):
+        """Klappt die Sidebar automatisch aus, z.B. nach 'Komplett zurücksetzen'.
+
+        Rührt eine bereits ausgeklappte Sidebar nicht an.
+        """
+        if self.gui.sidebar_collapsed:
+            self._expand_sidebar()
+
+    # --------------------------------------------------------
+    #  UNTERES PANEL EIN-/AUSKLAPPEN
+    # --------------------------------------------------------
+
+    def _toggle_bottom_panel(self):
+        """Klappt das untere Panel (Eingabe-/Ausgabedaten) ein oder aus.
+
+        Eingeklappt bleibt eine schmale Leiste mit dem Ausklapp-Icon und
+        den beiden Tab-Buttons (Eingabedaten/Ausgabedaten) sichtbar.
+        """
+        if not self.gui.bottom_collapsed:
+            self._collapse_bottom_panel()
+        else:
+            self._expand_bottom_panel()
+
+    def _collapse_bottom_panel(self):
+        gui = self.gui
+        total_height = gui.right_pane.winfo_height()
+        gui.bottom_panel_prev_height = total_height - gui.right_pane.sashpos(1)
+
+        gui.bottom_header.pack_forget()
+        gui.bottom_body.pack_forget()
+        gui.bottom_rail.pack(fill=tk.X, side=tk.TOP)
+        gui.right_pane.sashpos(1, total_height - Cfg.Layout.Global.BOTTOM_COLLAPSED_HEIGHT)
+        gui.bottom_collapsed = True
+
+    def _expand_bottom_panel(self):
+        gui = self.gui
+        gui.bottom_rail.pack_forget()
+        gui.bottom_header.pack(fill=tk.X, side=tk.TOP)
+        gui.bottom_body.pack(fill=tk.BOTH, expand=True)
+
+        total_height   = gui.right_pane.winfo_height()
+        restore_height = getattr(gui, 'bottom_panel_prev_height', None) \
+            or Cfg.Layout.Global.BOTTOM_COLLAPSED_HEIGHT * 5
+        gui.right_pane.sashpos(1, max(total_height - restore_height, 0))
+        gui.bottom_collapsed = False
+
+    def _expand_bottom_panel_and_select_tab(self, tab_index):
+        """Klappt das untere Panel aus und wechselt zum gewählten Tab (Klick auf einen Rail-Button)."""
+        self._expand_bottom_panel()
+        self.gui.bottom_notebook.select(tab_index)
+
+    def collapse_bottom_panel_if_expanded(self):
+        """Klappt das untere Panel automatisch ein, z.B. nach erfolgreicher Datenverarbeitung.
+
+        Rührt ein bereits (manuell) eingeklapptes Panel nicht an.
+        """
+        if not self.gui.bottom_collapsed:
+            self._collapse_bottom_panel()
+
+    def expand_bottom_panel_if_collapsed(self):
+        """Klappt das untere Panel automatisch aus, z.B. nach 'Zurücksetzen'.
+
+        Rührt ein bereits ausgeklapptes Panel nicht an.
+        """
+        if self.gui.bottom_collapsed:
+            self._expand_bottom_panel()
+
+    # --------------------------------------------------------
     #  HAUPTFENSTER ERSTELLEN
     # --------------------------------------------------------
 
     def create_gui(self):
         """Erstellt ausschließlich das Hauptfenster-Layout."""
-        self.gui.root = tb.Window(themename="cosmo")
+        Cfg.Styles.register_catppuccin_theme()
+        self.gui.root = tb.Window(themename="catppuccin_latte")
 
         # -------- ZENTRALE Schriftgrößen aus setup.py anwenden --------
         style = ttk.Style()
@@ -159,6 +268,13 @@ class GuiLayoutManager:
         self.gui.root.title(Cfg.Texts.WINDOW_TITLE)
 
         # --- Fenster-Icon: verzögert setzen damit ttkbootstrap nicht überschreibt ---
+        # HINWEIS: iconphoto() (mehrere PhotoImage-Größen, für scharfe Taskleisten-
+        # Darstellung) wurde ausprobiert und per Windows-API sauber verifiziert
+        # (Icon-Handles korrekt gesetzt), zeigte auf einem realen Testsystem aber
+        # trotzdem keine Wirkung (Titelleiste/Taskleiste blieben beim Standard-Icon).
+        # iconbitmap() mit einer generierten Mehrgrößen-.ico-Datei ist dagegen
+        # nachweislich sichtbar (wenn auch unscharf, da Windows daraus nur eine
+        # Bildgröße nutzt) - Funktionieren schlägt Schärfe, deshalb dabei geblieben.
         try:
             icon_path = self.gui.get_resource_path(
                 os.path.join("docs_bilder", "Giraffe.png")
@@ -172,16 +288,28 @@ class GuiLayoutManager:
             def _apply_icon():
                 try:
                     self.gui.root.iconbitmap(self.gui.root._tmp_ico)
+                    # Versuch gegen die Unschärfe: erzwingt ein Neuzeichnen von
+                    # Titelleiste/Taskleiste, falls Windows nach iconbitmap() nur
+                    # eine (hochskalierte) Icon-Größe für beide Kontexte übernommen
+                    # hat. Kann nicht schaden - wenn's nichts bringt, bleibt einfach
+                    # der bisherige (unscharfe, aber sichtbare) Zustand.
+                    force_icon_refresh(self.gui.root)
                 except Exception:
                     logging.getLogger(__name__).exception("iconbitmap fehlgeschlagen")
 
+            # tb.Window() setzt in seinem eigenen Konstruktor bereits sein Standard-
+            # Icon per iconphoto() (siehe ttkbootstrap/window.py). Ein SOFORTIGER
+            # (synchroner) Aufruf hier wird von etwas später in derselben create_gui()-
+            # Ausführung wieder überschrieben (getestet: schlägt fehl) - erst ein
+            # verzögerter Aufruf über after() gewinnt zuverlässig, weil er erst läuft,
+            # nachdem der komplette restliche Fensteraufbau durchgelaufen ist. Zweiter
+            # after()-Aufruf als zusätzliche Absicherung.
             self.gui.root.after(0, _apply_icon)
+            self.gui.root.after(200, _apply_icon)
         except Exception:
             logging.getLogger(__name__).exception("Icon konnte nicht gesetzt werden")
 
-        screen_width  = self.gui.root.winfo_screenwidth()
-        screen_height = self.gui.root.winfo_screenheight()
-        self.gui.root.geometry(f"{screen_width}x{screen_height}+0+0")
+        self.gui.root.state("zoomed")
 
         # --- Haupt-Pane ---
         main_pane = ttk.Panedwindow(self.gui.root, orient=tk.HORIZONTAL)
@@ -194,8 +322,73 @@ class GuiLayoutManager:
         sidebar_frame.pack_propagate(False)  # verhindert Zusammenstauchen
         main_pane.add(sidebar_frame, weight=0)
 
-        sidebar_canvas    = tk.Canvas(sidebar_frame, highlightthickness=0, bd=0, bg="#f0f0f0")
-        sidebar_scrollbar = ttk.Scrollbar(sidebar_frame, orient="vertical", command=sidebar_canvas.yview)
+        self.gui.main_pane         = main_pane
+        self.gui.sidebar_frame     = sidebar_frame
+        self.gui.sidebar_collapsed = False
+
+        # --- Kopfzeile mit Einklapp-Button (bleibt beim Scrollen fix) ---
+        sidebar_header = ttk.Frame(sidebar_frame)
+        sidebar_header.pack(fill=tk.X, side=tk.TOP)
+        self.gui.sidebar_header = sidebar_header
+
+        self.gui.sidebar_collapse_btn = ttk.Button(
+            sidebar_header,
+            image=get_icon_image(Cfg.Texts.SIDEBAR_COLLAPSE_ICON, color=Cfg.Colors.ICON_ON_CARD),
+            command=self._toggle_sidebar
+        )
+        self.gui.sidebar_collapse_btn.pack(side=tk.RIGHT, padx=4, pady=2)
+
+        # --- Eingeklappte Sidebar: schmale Leiste mit "Lesezeichen"-Button ---
+        sidebar_rail = ttk.Frame(sidebar_frame)
+        self.gui.sidebar_rail = sidebar_rail
+
+        self.gui.sidebar_expand_btn = ttk.Button(
+            sidebar_rail,
+            image=get_icon_image(Cfg.Texts.SIDEBAR_EXPAND_ICON, color=Cfg.Colors.ICON_ON_CARD),
+            command=self._toggle_sidebar
+        )
+        self.gui.sidebar_expand_btn.pack(side=tk.TOP, padx=4, pady=6)
+
+        # --- Schnellzugriff auf "Zurücksetzen", damit er auch eingeklappt
+        #     erkennbar und erreichbar bleibt ---
+        ttk.Separator(sidebar_rail, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=(4, 6))
+
+        tb.Button(
+            sidebar_rail,
+            image=get_icon_image(Cfg.Texts.BTN_RESET_KOMPLETT_ICON, color=Cfg.Colors.WARNING),
+            command=lambda: self.gui.on_reset_selected(Cfg.Texts.RESET_KOMPLETT_DESC),
+            bootstyle="outline-warning"
+        ).pack(side=tk.TOP, padx=4, pady=2)
+
+        tb.Button(
+            sidebar_rail,
+            image=get_icon_image(Cfg.Texts.BTN_RESET_EINGABE_ICON, color=Cfg.Colors.WARNING),
+            command=lambda: self.gui.on_reset_selected(Cfg.Texts.RESET_EINGABE_DESC),
+            bootstyle="outline-warning"
+        ).pack(side=tk.TOP, padx=4, pady=2)
+
+        # --- Schnellzugriff auf die Speicherpfade ---
+        ttk.Separator(sidebar_rail, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=(6, 6))
+
+        ttk.Button(
+            sidebar_rail,
+            image=get_icon_image(Cfg.Texts.BTN_HERKUNFTSPFAD_ICON, color=Cfg.Colors.ICON_ON_CARD),
+            command=lambda: self.gui.show_path_window(Cfg.Texts.BTN_HERKUNFTSPFAD)
+        ).pack(side=tk.TOP, padx=4, pady=2)
+
+        ttk.Button(
+            sidebar_rail,
+            image=get_icon_image(Cfg.Texts.BTN_SPEICHERPFAD_ICON, color=Cfg.Colors.ICON_ON_CARD),
+            command=lambda: self.gui.show_path_window(Cfg.Texts.BTN_SPEICHERPFAD)
+        ).pack(side=tk.TOP, padx=4, pady=2)
+
+        # --- Sidebar-Körper (Scrollbereich, wird beim Einklappen versteckt) ---
+        sidebar_body = ttk.Frame(sidebar_frame)
+        sidebar_body.pack(fill=tk.BOTH, expand=True)
+        self.gui.sidebar_body = sidebar_body
+
+        sidebar_canvas    = tk.Canvas(sidebar_body, highlightthickness=0, bd=0, bg="#f0f0f0")
+        sidebar_scrollbar = ttk.Scrollbar(sidebar_body, orient="vertical", command=sidebar_canvas.yview)
         sidebar_inner     = ttk.Frame(sidebar_canvas, padding=(Cfg.Layout.Sidebar.PAD_X, Cfg.Layout.Sidebar.PAD_Y))
         sidebar_canvas.configure(width=Cfg.Layout.Global.SIDEBAR_WIDTH)
 
@@ -276,9 +469,49 @@ class GuiLayoutManager:
         self._create_status_bar(top_region)
         self._create_logo_background(mid_region)
 
-        # --- Notebook ---
+        # --- Unteres Panel: Kopfzeile mit Einklapp-Button + Körper ---
         self.gui.bottom_region   = bottom_region
-        self.gui.bottom_notebook = ttk.Notebook(bottom_region)
+        self.gui.bottom_collapsed = False
+
+        bottom_header = ttk.Frame(bottom_region)
+        bottom_header.pack(fill=tk.X, side=tk.TOP)
+        self.gui.bottom_header = bottom_header
+
+        self.gui.bottom_collapse_btn = ttk.Button(
+            bottom_header,
+            image=get_icon_image(Cfg.Texts.BOTTOM_COLLAPSE_ICON, color=Cfg.Colors.ICON_ON_CARD),
+            command=self._toggle_bottom_panel
+        )
+        self.gui.bottom_collapse_btn.pack(side=tk.RIGHT, padx=4, pady=2)
+
+        # --- Eingeklapptes unteres Panel: schmale Leiste mit Ausklapp-Icon
+        #     und den beiden Tabs als Buttons ---
+        bottom_rail = ttk.Frame(bottom_region)
+        self.gui.bottom_rail = bottom_rail
+
+        self.gui.bottom_expand_btn = ttk.Button(
+            bottom_rail,
+            image=get_icon_image(Cfg.Texts.BOTTOM_EXPAND_ICON, color=Cfg.Colors.ICON_ON_CARD),
+            command=self._toggle_bottom_panel
+        )
+        self.gui.bottom_expand_btn.pack(side=tk.LEFT, padx=(4, 10), pady=2)
+
+        ttk.Button(
+            bottom_rail, text=Cfg.Texts.TAB_EINGABE,
+            command=lambda: self._expand_bottom_panel_and_select_tab(0)
+        ).pack(side=tk.LEFT, padx=4, pady=2)
+
+        ttk.Button(
+            bottom_rail, text=Cfg.Texts.TAB_AUSGABE,
+            command=lambda: self._expand_bottom_panel_and_select_tab(1)
+        ).pack(side=tk.LEFT, padx=4, pady=2)
+
+        bottom_body = ttk.Frame(bottom_region)
+        bottom_body.pack(fill=tk.BOTH, expand=True)
+        self.gui.bottom_body = bottom_body
+
+        # --- Notebook ---
+        self.gui.bottom_notebook = ttk.Notebook(bottom_body)
         self.gui.bottom_notebook.pack(fill=tk.BOTH, expand=True)
 
         input_tab  = ttk.Frame(self.gui.bottom_notebook)
@@ -289,7 +522,7 @@ class GuiLayoutManager:
         self.gui.bottom_notebook.add(output_tab, text=Cfg.Texts.TAB_AUSGABE)
 
         # --- Mehrfachdatei-Panel (ersetzt bottom_notebook nur wenn mehrere Dateien geladen werden) ---
-        self.gui.multi_file_panel = ttk.Frame(bottom_region)
+        self.gui.multi_file_panel = ttk.Frame(bottom_body)
 
         style = ttk.Style()
         style.configure(".", font=(Cfg.Fonts.FAMILY, Cfg.Fonts.TABS))
@@ -337,7 +570,9 @@ class GuiLayoutManager:
                 Cfg.Styles.force_apply(card, frame_s)
                 card.pack(fill=tk.X, expand=False, pady=(0, Cfg.Layout.Sidebar.CARD_PAD_Y), padx=2)
 
-                header = tb.Label(card, text=f"{icon}{' ' * Cfg.Texts.CARD_ICON_SPACING}{step_num}. {title}",
+                header = tb.Label(card, text=f"{step_num}. {title}",
+                                image=get_icon_image(icon, size=18, color=Cfg.Colors.ICON_ON_CARD),
+                                compound="left",
                                 font=(Cfg.Fonts.FAMILY, Cfg.Fonts.LARGE, "bold"), anchor="center")
                 Cfg.Styles.force_apply(header, label_s)
                 header.pack(fill=tk.X, padx=Cfg.Layout.InputOutput.HEADER_PAD_X,
@@ -356,7 +591,9 @@ class GuiLayoutManager:
                 card = tb.Frame(parent, bootstyle=bs)
                 card.pack(fill=tk.X, expand=False, pady=(0, Cfg.Layout.Sidebar.CARD_PAD_Y), padx=2)
                 
-                header = tb.Label(card, text=f"{icon}{' ' * Cfg.Texts.CARD_ICON_SPACING}{step_num}. {title}",
+                header = tb.Label(card, text=f"{step_num}. {title}",
+                                image=get_icon_image(icon, size=18, color=Cfg.Colors.ICON_ON_CARD),
+                                compound="left",
                                 font=(Cfg.Fonts.FAMILY, Cfg.Fonts.LARGE, "bold"), anchor="center")
                 header.pack(fill=tk.X, padx=Cfg.Layout.InputOutput.HEADER_PAD_X,
                             pady=Cfg.Layout.InputOutput.HEADER_PAD_Y)
@@ -380,14 +617,13 @@ class GuiLayoutManager:
             card = tb.Frame(parent, bootstyle=bs)
             card.pack(fill=tk.X, expand=False, pady=(0, Cfg.Layout.Sidebar.CARD_PAD_Y), padx=2)
 
-            if step_num:
-                label_text = f"{icon}{' ' * Cfg.Texts.CARD_ICON_SPACING}{step_num}. {title}"
-            else:
-                label_text = f"{icon}{' ' * Cfg.Texts.CARD_ICON_SPACING}{title}"
+            label_text = f"{step_num}. {title}" if step_num else title
 
             header = tb.Label(
                 card,
                 text=label_text,
+                image=get_icon_image(icon, size=18, color=Cfg.Colors.ICON_ON_CARD) if icon else None,
+                compound="left",
                 bootstyle=f"inverse-{bs}",
                 font=(Cfg.Fonts.FAMILY, Cfg.Fonts.LARGE, "bold"),
                 anchor="center",
@@ -500,13 +736,17 @@ class GuiLayoutManager:
                  font=(Cfg.Fonts.FAMILY, Cfg.Fonts.MEDIUM, "bold")).pack(anchor="w", pady=(4, 2), padx=6)
 
         tb.Button(
-            allg_content, text=f"{Cfg.Texts.BTN_RESET_KOMPLETT_ICON}{' ' * Cfg.Texts.CARD_ICON_SPACING}{Cfg.Texts.BTN_RESET_KOMPLETT_TEXT}",
+            allg_content, text=Cfg.Texts.BTN_RESET_KOMPLETT_TEXT,
+            image=get_icon_image(Cfg.Texts.BTN_RESET_KOMPLETT_ICON, color=Cfg.Colors.WARNING),
+            compound="left",
             command=lambda: self.gui.on_reset_selected(Cfg.Texts.RESET_KOMPLETT_DESC),
             bootstyle="outline-warning", padding=(4, 2)
         ).pack(fill=tk.X, pady=BT_PAD.SMALL_PAD_Y, padx=6)
 
         tb.Button(
-            allg_content, text=f"{Cfg.Texts.BTN_RESET_EINGABE_ICON}{' ' * Cfg.Texts.CARD_ICON_SPACING}{Cfg.Texts.BTN_RESET_EINGABE_TEXT}",
+            allg_content, text=Cfg.Texts.BTN_RESET_EINGABE_TEXT,
+            image=get_icon_image(Cfg.Texts.BTN_RESET_EINGABE_ICON, color=Cfg.Colors.WARNING),
+            compound="left",
             command=lambda: self.gui.on_reset_selected(Cfg.Texts.RESET_EINGABE_DESC),
             bootstyle="outline-warning", padding=(4, 2)
         ).pack(fill=tk.X, pady=BT_PAD.SMALL_PAD_Y, padx=6)
@@ -818,6 +1058,9 @@ class GuiLayoutManager:
             "selected_display_var": selected_display_var,
             "listbox":             listbox,
             "groups_container":    groups_container,
+            "groups_canvas":       groups_canvas,
+            "groups_frame":        groups_frame,
+            "paned_window":        paned_window,
             "group_buttons_frame": group_buttons_frame,
             "opts_frame":          opts_frame,
             "actions_frame":       actions_frame,
@@ -906,6 +1149,7 @@ class GuiLayoutManager:
             _resize_job[0] = canvas_widget.after(100, do_resize)
 
         canvas_widget.bind("<Configure>", on_canvas_resize)
+        self.gui.center_window(plot_window)
 
         def _initial_resize():
             try:

@@ -15,7 +15,6 @@ import logging
 #  IMPORTS – Drittanbieter
 # ============================================================
 import numpy as np
-from scipy import signal as scipy_signal
 
 # ============================================================
 #  IMPORTS – Eigene Klassen
@@ -26,6 +25,18 @@ from konfiguration import Cfg
 #  LOGGING
 # ============================================================
 logger = logging.getLogger(__name__)
+
+# scipy.signal wird erst beim ersten tatsächlichen Filteraufruf importiert
+# (kostet sonst ~1,7s Startzeit für ein Feature, das nicht jede Session braucht).
+_scipy_signal = None
+
+
+def _get_scipy_signal():
+    global _scipy_signal
+    if _scipy_signal is None:
+        from scipy import signal
+        _scipy_signal = signal
+    return _scipy_signal
 
 
 # ============================================================
@@ -174,7 +185,7 @@ class FilterManager:
         logger.info(Cfg.Logs.FILTER_USING_SOS)
         try:
             sos             = self._build_sos(normalized_cutoff, btype='low')
-            filtered_signal = scipy_signal.sosfiltfilt(sos, input_signal)
+            filtered_signal = _get_scipy_signal().sosfiltfilt(sos, input_signal)
             logger.info(Cfg.Status.FILTER_APPLIED.format("Tiefpass", self.order))
             return filtered_signal
         except Exception as e:
@@ -186,7 +197,7 @@ class FilterManager:
         logger.info(Cfg.Logs.FILTER_USING_SOS)
         try:
             sos             = self._build_sos(normalized_cutoff, btype='high')
-            filtered_signal = scipy_signal.sosfiltfilt(sos, input_signal)
+            filtered_signal = _get_scipy_signal().sosfiltfilt(sos, input_signal)
             logger.info(Cfg.Status.FILTER_APPLIED.format("Hochpass", self.order))
             return filtered_signal
         except Exception as e:
@@ -215,7 +226,7 @@ class FilterManager:
         try:
             logger.info(Cfg.Logs.FILTER_USING_SOS)
             sos             = self._build_sos([normalized_cutoff_low, normalized_cutoff_high], btype='band')
-            filtered_signal = scipy_signal.sosfiltfilt(sos, input_signal)
+            filtered_signal = _get_scipy_signal().sosfiltfilt(sos, input_signal)
             logger.info(Cfg.Status.FILTER_APPLIED.format("Bandpass", self.order))
             return filtered_signal
 
@@ -269,7 +280,7 @@ class FilterManager:
                     return None, None, None
 
             if self.sos_coeffs is not None:
-                self.b_coeffs, self.a_coeffs = scipy_signal.sos2tf(self.sos_coeffs)
+                self.b_coeffs, self.a_coeffs = _get_scipy_signal().sos2tf(self.sos_coeffs)
                 logger.info(Cfg.Status.FILTER_COEFFICIENTS_CALC)
             else:
                 self._reset_coefficients()
@@ -291,21 +302,21 @@ class FilterManager:
             numpy.array: SOS-Koeffizienten
         """
         if self.characteristic == "bessel":
-            return scipy_signal.bessel(
+            return _get_scipy_signal().bessel(
                 self.order, cutoff, btype=btype, analog=False, output='sos'
             )
         elif self.characteristic == "Chebyshev I":
-            return scipy_signal.cheby1(
+            return _get_scipy_signal().cheby1(
                 self.order, Cfg.Limits.DEFAULT_RIPPLE_DB,
                 cutoff, btype=btype, analog=False, output='sos'
             )
         elif self.characteristic == "Elliptic":
-            return scipy_signal.ellip(
+            return _get_scipy_signal().ellip(
                 self.order, Cfg.Limits.DEFAULT_RIPPLE_DB, Cfg.Limits.DEFAULT_STOP_DB,
                 cutoff, btype=btype, analog=False, output='sos'
             )
         else:  # butterworth
-            return scipy_signal.butter(
+            return _get_scipy_signal().butter(
                 self.order, cutoff, btype=btype, analog=False, output='sos'
             )
 
@@ -354,7 +365,7 @@ class FilterManager:
         try:
             logger.info(Cfg.Logs.FILTER_CALC_FREQ_RESPONSE.format(num_points))
 
-            w, h = scipy_signal.freqz(
+            w, h = _get_scipy_signal().freqz(
                 self.b_coeffs, self.a_coeffs,
                 worN=num_points, fs=self.sample_rate
             )

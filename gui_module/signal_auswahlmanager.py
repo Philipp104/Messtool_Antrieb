@@ -132,6 +132,9 @@ class SignalAuswahlManager:
         selected_display_var = layout["selected_display_var"]
         listbox              = layout["listbox"]
         groups_container     = layout["groups_container"]
+        groups_canvas        = layout["groups_canvas"]
+        groups_frame         = layout["groups_frame"]
+        paned_window         = layout["paned_window"]
         group_buttons_frame  = layout["group_buttons_frame"]
         opts_frame           = layout["opts_frame"]
         actions_frame        = layout["actions_frame"]
@@ -223,6 +226,13 @@ class SignalAuswahlManager:
 
         selected_group_indices = {"indices": []}
 
+        # Automatische Höhe des Gruppen-Bereichs: wächst/schrumpft mit der Anzahl
+        # Gruppen, ohne feste Obergrenze - der Nutzer sieht so alle Gruppen ohne
+        # scrollen zu müssen. Manuelles Verkleinern per Splitter (PanedWindow-
+        # Sash) bleibt davon unberührt, das läuft unabhängig über fill/expand.
+        GROUP_ROW_HEIGHT  = 30
+        MIN_AUTO_HEIGHT   = 40
+
         def update_group_display():
             """Aktualisiert die Anzeige aller Gruppen."""
             for widget in groups_container.winfo_children():
@@ -269,6 +279,27 @@ class SignalAuswahlManager:
 
                 group_label.bind("<Button-1>", _make_click_handler(i))
                 group_frame.bind("<Button-1>",  _make_click_handler(i))
+
+            n = len(self.gui.signal_groups)
+            content_height = max(MIN_AUTO_HEIGHT, n * GROUP_ROW_HEIGHT)
+            groups_canvas.configure(height=content_height)
+
+            # groups_canvas.configure(height=...) allein bewirkt nichts - ein
+            # ttk.PanedWindow fragt die Grösse eines Kind-Widgets nicht erneut ab,
+            # sobald das Layout einmal steht. Die Pane muss über die Sash-Position
+            # aktiv verschoben werden, um tatsächlich sichtbar zu wachsen/schrumpfen.
+            # Zielhöhe der ganzen Pane über winfo_reqheight() ermitteln (nicht nur
+            # die Canvas-Höhe!), damit auch group_buttons_frame ("Gruppe erstellen"/
+            # "Gruppe(n) löschen") und der LabelFrame-Rahmen genug Platz behalten
+            # und nicht abgeschnitten werden.
+            groups_frame.update_idletasks()
+            total_height = groups_frame.winfo_reqheight()
+
+            paned_window.update_idletasks()
+            pw_height = paned_window.winfo_height()
+            if pw_height > 1:  # > 1 heisst: Fenster ist schon echt gemappt/vermessen
+                new_sash = max(0, pw_height - total_height)
+                paned_window.sashpos(0, new_sash)
 
         def _select_group(idx: int):
             """Wählt/Entwählt eine Gruppe (Toggle)."""
@@ -387,19 +418,7 @@ class SignalAuswahlManager:
             ttk.Button(button_frame, text="OK", command=on_ok).pack(side=tk.LEFT, padx=5)
             ttk.Button(button_frame, text="Abbrechen", command=on_cancel).pack(side=tk.LEFT, padx=5)
 
-            group_popup.update_idletasks()
-
-            parent_x = select_window.winfo_x()
-            parent_y = select_window.winfo_y()
-            parent_width = select_window.winfo_width()
-            parent_height = select_window.winfo_height()
-            popup_width = group_popup.winfo_width()
-            popup_height = group_popup.winfo_height()
-
-            x = parent_x + (parent_width - popup_width) // 2
-            y = parent_y + (parent_height - popup_height) // 2
-
-            group_popup.geometry(f"+{max(0, x)}+{max(0, y)}")
+            self.gui.center_window(group_popup)
 
             group_popup.wait_window()
 
@@ -557,7 +576,6 @@ class SignalAuswahlManager:
             popup = tb.Toplevel(select_window)
             popup.title(Cfg.Texts.FILTER_DIALOG_TITEL)
             popup.transient(select_window)
-            popup.grab_set()
             self.gui.apply_icon(popup)
 
             ttk.Label(popup, text="Filter wählen:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
@@ -704,7 +722,6 @@ class SignalAuswahlManager:
                         self.filter_char_button.config(state="normal")
 
                 self.plot_window_manager.update_all_plot_windows()
-                popup.destroy()
 
             # --- Aktuellen Filterzustand in Dialog eintragen ---
             filter_type_cb.set(self.gui.filter_manager.filter_type or "Tiefpass")
@@ -722,7 +739,21 @@ class SignalAuswahlManager:
                 order_cb.set(f"{self.gui.filter_manager.order}.Ordnung")
             on_filter_type_change()
 
-            ttk.Button(popup, text="Anwenden", command=apply_filter).grid(row=3, column=1, columnspan=2, pady=15)
+            btn_row = ttk.Frame(popup)
+            btn_row.grid(row=3, column=0, columnspan=4, pady=15)
+
+            ttk.Button(btn_row, text="Anwenden", command=apply_filter).pack(side=tk.LEFT, padx=6)
+
+            char_state = "normal" if self.gui.filter_manager.filter_type not in (
+                None, "", Cfg.Defaults.FILTER_TYP
+            ) else "disabled"
+            self.filter_char_button = ttk.Button(
+                btn_row, text="Charakteristik anzeigen", state=char_state,
+                command=lambda: self.gui.ui_control.show_filter_characteristic_window()
+            )
+            self.filter_char_button.pack(side=tk.LEFT, padx=6)
+
+            self.gui.center_window(popup)
 
         def on_filtered_master_toggled():
             """Handler für Filter-Master-Toggle."""
@@ -731,12 +762,6 @@ class SignalAuswahlManager:
         # --- Opts-Frame Buttons & Checkboxen ---
         ttk.Button(opts_frame, text=Cfg.Texts.BTN_FILTER, command=open_filter_popup).pack(side=tk.LEFT, padx=6)
         ttk.Checkbutton(opts_frame, text="Filter aktiv", variable=self.gui.use_filtered_var, command=on_filtered_master_toggled).pack(side=tk.LEFT, padx=6)
-
-        self.filter_char_button = ttk.Button(
-            opts_frame, text="Filtercharakteristik", state="disabled",
-            command=lambda: self.gui.ui_control.show_filter_characteristic_window()
-        )
-        self.filter_char_button.pack(side=tk.LEFT, padx=6)
 
         ttk.Checkbutton(opts_frame, text="AVG",          variable=show_avg_var).pack(side=tk.LEFT, padx=6)
         ttk.Checkbutton(opts_frame, text="RMS",          variable=show_rms_var).pack(side=tk.LEFT, padx=6)
@@ -909,7 +934,7 @@ class SignalAuswahlManager:
             self.gui.use_filtered_var.set(False)
             protocol_logger.info("SELECTION_CLEAR_ALL")
 
-            if hasattr(self, 'filter_char_button'):
+            if self.filter_char_button is not None and self.filter_char_button.winfo_exists():
                 self.filter_char_button.config(state="disabled")
 
         # --------------------------------------------------------

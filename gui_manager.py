@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import ttkbootstrap as tb
-from xhtml2pdf import pisa
 
 import tkinter as tk
 from tkinter import ttk, filedialog
@@ -45,6 +44,7 @@ from gui_module.plot_fenster_manager import PlotWindowManager
 from gui_module.oberflaechen_steuerung import UiControlManager
 from gui_module.analyse_manager import AnalysisManager
 from gui_module.mehrfachdatei_manager import MehrfachDateiManager
+from gui_module.gui_hilfsfunktionen import center_window as _center_window
 from konfiguration import Cfg
 
 # ============================================================
@@ -380,6 +380,10 @@ class GuiManager:
         if ico:
             window.after(0, lambda w=window, i=ico: w.iconbitmap(i))
 
+    def center_window(self, window, width=None, height=None):
+        """Zentriert ein Toplevel-Fenster auf dem Bildschirm (nach dem Aufbau der Widgets aufrufen)."""
+        _center_window(window, width=width, height=height)
+
     def _log_dataset_preview(self, context):
         """Loggt eine Vorschau der geladenen Daten."""
         if self.df is None:
@@ -588,6 +592,8 @@ class GuiManager:
                 times=Cfg.PlotStyle.BUTTON_BLINK_TIMES,
                 interval=Cfg.PlotStyle.BUTTON_BLINK_DURATION
             )
+            self.layout_manager.collapse_sidebar_if_expanded()
+            self.layout_manager.collapse_bottom_panel_if_expanded()
 
         if open_overlay:
             self.root.after(0, self.show_multi_signal_overlay_window)
@@ -641,6 +647,7 @@ class GuiManager:
             marker_size=Cfg.PlotStyle.DEFAULT_MARKER_SIZE
         )
         canvas.draw()
+        self.center_window(win)
 
         self.status_label.config(text=Cfg.Status.GUI_OVERVIEW_CREATED)
         protocol_logger.info(Cfg.Logs.GUI_OVERVIEW_CREATED.format(len(self.signals)))
@@ -742,6 +749,7 @@ class GuiManager:
 
         fig.tight_layout()
         canvas.draw()
+        self.center_window(win)
         self.status_label.config(text=Cfg.Status.FILTER_PLOT_CREATED)
 
     def _update_main_plot_without_filter(self):
@@ -893,6 +901,10 @@ class GuiManager:
             return
 
         try:
+            # Lazy Import: xhtml2pdf wird nur beim tatsächlichen PDF-Export benötigt
+            # und zieht schwere Abhängigkeiten (pyhanko, pyparsing) nach sich (~1,9s).
+            from xhtml2pdf import pisa
+
             # HTML zu PDF konvertieren
             with open(html_path, 'r', encoding='utf-8') as html_file:
                 html_content = html_file.read()
