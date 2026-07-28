@@ -15,6 +15,7 @@ from tkinter import ttk
 # ============================================================
 #  IMPORTS – Drittanbieter
 # ============================================================
+import numpy as np
 import ttkbootstrap as tb
 
 # ============================================================
@@ -94,11 +95,32 @@ class SignalAuswahlManager:
             if self.gui.headers.index(h) < len(self.gui.units) else ""
             for h in selectable_headers
         ))
-        color_palette = Cfg.Colors.UNIT_PALETTE
-        unit_colors   = {
+        color_palette  = Cfg.Colors.UNIT_PALETTE
+        accent_palette = Cfg.Colors.UNIT_PALETTE_ACCENT
+        unit_colors    = {
             unit: color_palette[i % len(color_palette)]
             for i, unit in enumerate(unique_units)
         }
+        # Kräftigere Farben nur für die Legenden-Swatches - die pastelligen
+        # unit_colors sind auf einem kleinen 14x14-Feld kaum zu unterscheiden.
+        unit_legend_colors = {
+            unit: accent_palette[i % len(accent_palette)]
+            for i, unit in enumerate(unique_units)
+        }
+
+        def _is_zero_signal(h):
+            """Prüft, ob ein Signal über den gesamten Verlauf (nahezu) konstant 0 ist."""
+            idx = self.gui.headers.index(h)
+            if idx >= len(self.gui.signals):
+                return False
+            arr = self.gui.signals[idx]
+            try:
+                return bool(np.all(np.abs(arr) < 1e-9))
+            except (TypeError, ValueError) as e:
+                logger.debug("Null-Signal-Prüfung für '%s' fehlgeschlagen: %s", h, e)
+                return False
+
+        zero_signal_headers = {h for h in selectable_headers if _is_zero_signal(h)}
 
         selected_list      = []
         last_clicked_index = [None]
@@ -119,7 +141,7 @@ class SignalAuswahlManager:
             if hasattr(self.gui, "multi_file_manager") and self.gui.multi_file_manager.is_active():
                 self.gui.multi_file_manager.return_to_step1()
 
-        layout        = self.gui.layout_manager.create_signal_selection_layout(on_window_close)
+        layout        = self.gui.layout_manager.create_signal_selection_layout(on_window_close, unit_colors=unit_legend_colors)
         select_window = layout["select_window"]
 
         self.plot_window_manager.active_signal_window = select_window
@@ -201,12 +223,16 @@ class SignalAuswahlManager:
             for unit, color in unit_colors.items():
                 tag_name = f"unit_{unit}" if unit else "unit_none"
                 listbox.tag_configure(tag_name, background=color)
+            listbox.tag_configure("zero_signal", foreground=Cfg.Colors.DANGER)
 
             for h in visible_items:
-                idx      = self.gui.headers.index(h)
-                unit     = self.gui.units[idx].strip() if idx < len(self.gui.units) else ""
-                tag_name = f"unit_{unit}" if unit else "unit_none"
-                listbox.insert("", tk.END, text=h, tags=(tag_name,))
+                idx          = self.gui.headers.index(h)
+                unit         = self.gui.units[idx].strip() if idx < len(self.gui.units) else ""
+                tag_name     = f"unit_{unit}" if unit else "unit_none"
+                is_zero      = h in zero_signal_headers
+                display_text = f"{h} {Cfg.Texts.ZERO_SIGNAL_MARKER}" if is_zero else h
+                row_tags     = (tag_name, "zero_signal") if is_zero else (tag_name,)
+                listbox.insert("", tk.END, text=display_text, tags=row_tags)
 
             selection_clear_all()
             for i, h in enumerate(visible_items):
@@ -762,7 +788,7 @@ class SignalAuswahlManager:
 
         # --- Opts-Frame Buttons & Checkboxen ---
         ttk.Button(opts_frame, text=Cfg.Texts.BTN_FILTER, command=open_filter_popup).pack(side=tk.LEFT, padx=6)
-        ttk.Checkbutton(opts_frame, text="Filter aktiv", variable=self.gui.use_filtered_var, command=on_filtered_master_toggled).pack(side=tk.LEFT, padx=6)
+        ttk.Checkbutton(opts_frame, text="Filter", variable=self.gui.use_filtered_var, command=on_filtered_master_toggled).pack(side=tk.LEFT, padx=6)
 
         ttk.Checkbutton(opts_frame, text="AVG",          variable=show_avg_var).pack(side=tk.LEFT, padx=6)
         ttk.Checkbutton(opts_frame, text="RMS",          variable=show_rms_var).pack(side=tk.LEFT, padx=6)

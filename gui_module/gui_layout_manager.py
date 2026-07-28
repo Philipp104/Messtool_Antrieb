@@ -1000,7 +1000,7 @@ class GuiLayoutManager:
         Cfg.Styles.force_apply(label, "PanelHeader.TLabel")
         labelframe.configure(labelwidget=label)
 
-    def create_signal_selection_layout(self, on_window_close):
+    def create_signal_selection_layout(self, on_window_close, unit_colors=None):
         """Erstellt das Layout des Signalauswahl-Bereichs in der Mid-Region."""
         for widget in self.gui.mid_region.winfo_children():
             if widget != getattr(self.gui, '_logo_label', None):
@@ -1067,9 +1067,79 @@ class GuiLayoutManager:
         select_style = ttk.Style(select_window)
         select_style.configure("Treeview", font=(Cfg.Fonts.FAMILY, Cfg.Fonts.PLOT))
 
+        # Scrollbar zuerst mit side=RIGHT packen, damit sie den äusseren rechten
+        # Rand belegt - die danach gepackte Legende landet dadurch zwischen
+        # Scrollbar und Liste, also innerhalb des sichtbaren Listenbereichs.
         list_scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
         list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         listbox.configure(yscrollcommand=list_scrollbar.set)
+
+        # --- Legende: Einheiten-Farben + Null-Signal-Marker ---
+        # Schwebt als Overlay (place, nicht pack) über der rechten oberen Ecke der
+        # Liste. relx/rely sorgt dafür, dass Tk die Position automatisch neu
+        # berechnet, sobald sich die Fenster-/Pane-Grösse ändert - die Legende
+        # "passt" sich also dynamisch an. Echte Transparenz kennt Tk für Widgets
+        # nicht (kein Alpha-Blending) - PANEL_BG (grau) statt eines eigenen
+        # Weiss-Tons, der violette Rahmen (LegendBox.TFrame) gibt genug Kontrast
+        # zu den bunten Zeilen darunter.
+        legend_style = ttk.Style(select_window)
+        legend_style.configure("ZeroMarker.TLabel", foreground=Cfg.Colors.DANGER, background=Cfg.Colors.PANEL_BG)
+
+        legend_frame = ttk.Frame(list_frame, padding=6)
+        Cfg.Styles.force_apply(legend_frame, "LegendBox.TFrame")
+
+        legend_title = ttk.Label(
+            legend_frame, text=f" {Cfg.Texts.LBL_LEGEND}", compound="left",
+            image=get_icon_image(Cfg.Texts.CARD_ALLGEMEIN_ICON, size=14, color=Cfg.Colors.THEME_ACCENT),
+            font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL, "bold")
+        )
+        Cfg.Styles.force_apply(legend_title, "LegendHeader.TLabel")
+        legend_title.pack(anchor="w", pady=(0, 4))
+
+        # ttk.Style statt rohem tk.Frame fuer die Farbfelder: ttkbootstrap ueberschreibt
+        # bg/fg von rohen tk-Widgets aktiv, ein eigener ttk-Style pro Farbe wird
+        # respektiert (gleiche Technik wie MultiFileTab in mehrfachdatei_manager.py).
+        for unit, color in (unit_colors or {}).items():
+            legend_row = ttk.Frame(legend_frame)
+            Cfg.Styles.force_apply(legend_row, "Legend.TFrame")
+            legend_row.pack(fill=tk.X, pady=1)
+
+            swatch_style_name = f"LegendSwatch{color.lstrip('#')}.TLabel"
+            legend_style.configure(swatch_style_name, background=color)
+            swatch = ttk.Label(legend_row, text="  ", width=2)
+            Cfg.Styles.force_apply(swatch, swatch_style_name)
+            swatch.pack(side=tk.LEFT, padx=(0, 4))
+
+            unit_label = ttk.Label(
+                legend_row, text=(unit if unit else Cfg.Texts.LEGEND_NO_UNIT),
+                font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL)
+            )
+            Cfg.Styles.force_apply(unit_label, "Legend.TLabel")
+            unit_label.pack(side=tk.LEFT, anchor="w")
+
+        zero_row = ttk.Frame(legend_frame)
+        Cfg.Styles.force_apply(zero_row, "Legend.TFrame")
+        zero_row.pack(fill=tk.X, pady=(8, 1))
+
+        zero_marker_label = ttk.Label(
+            zero_row, text=Cfg.Texts.ZERO_SIGNAL_MARKER,
+            font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL, "bold")
+        )
+        Cfg.Styles.force_apply(zero_marker_label, "ZeroMarker.TLabel")
+        zero_marker_label.pack(side=tk.LEFT, padx=(0, 4))
+
+        zero_text_label = ttk.Label(
+            zero_row, text=Cfg.Texts.LEGEND_ZERO_SIGNAL,
+            font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL)
+        )
+        Cfg.Styles.force_apply(zero_text_label, "Legend.TLabel")
+        zero_text_label.pack(side=tk.LEFT, anchor="w")
+
+        # in_=listbox (nicht list_frame) verankert die Legende an der Baumspalte
+        # selbst, nicht an der Scrollbar-Breite daneben - so bleibt die Scrollbar
+        # frei bedienbar und die Legende sitzt sauber in der oberen rechten Ecke.
+        legend_frame.place(in_=listbox, relx=1.0, rely=0.0, anchor="ne", x=-4, y=4)
+        legend_frame.lift()
 
         # --- Gruppen ---
         # Eigene Page-farbene Wrapper-Pane, damit ein kleiner Abstand zwischen der
@@ -1106,6 +1176,25 @@ class GuiLayoutManager:
 
         groups_container.bind("<Configure>", _on_groups_configure)
         groups_canvas.bind("<Configure>",    _on_groups_canvas_resize)
+
+        def _on_groups_mousewheel(event):
+            if event.delta:
+                groups_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif event.num == 4:
+                groups_canvas.yview_scroll(-3, "units")
+            elif event.num == 5:
+                groups_canvas.yview_scroll(3, "units")
+
+        groups_canvas.bind("<Enter>", lambda e: (
+            groups_canvas.bind_all("<MouseWheel>", _on_groups_mousewheel),
+            groups_canvas.bind_all("<Button-4>",   _on_groups_mousewheel),
+            groups_canvas.bind_all("<Button-5>",   _on_groups_mousewheel),
+        ))
+        groups_canvas.bind("<Leave>", lambda e: (
+            groups_canvas.unbind_all("<MouseWheel>"),
+            groups_canvas.unbind_all("<Button-4>"),
+            groups_canvas.unbind_all("<Button-5>"),
+        ))
 
         return {
             "select_window":       select_window,

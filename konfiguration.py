@@ -120,6 +120,13 @@ class Colors:
         "#e6ffff", "#fff9e6", "#ffe6f3", "#e6ffe9", "#f0e6ff",
     ]
 
+    # --- Kräftigere Variante der Einheiten-Palette, nur für die Legenden-Farbfelder
+    #     (die pastelligen UNIT_PALETTE-Töne sind auf kleinen Swatches kaum sichtbar) ---
+    UNIT_PALETTE_ACCENT = [
+        "#4da6ff", "#4dcc4d", "#ffab4d", "#ff6666", "#b366ff",
+        "#4dd2ff", "#ffe14d", "#ff66b3", "#4dffa6", "#b84dff",
+    ]
+
     # --- Signalfarben (plot_manager.py) ---
     SIGNAL_ORIGINAL  = "#2c7fb8"
     SIGNAL_FILTERED  = "#d62728"
@@ -272,6 +279,24 @@ class Styles:
             "PanelHeader.TLabel",
             background=Colors.PANEL_BG,
             foreground=Colors.THEME_ACCENT,
+        )
+
+        # --- Legende (signal_auswahl_manager.py): schwebt als Overlay über der
+        # Liste (siehe create_signal_selection_layout). Echte Transparenz kennt Tk
+        # nicht, daher PANEL_BG (grau, wie die Listen-Panels) statt eines eigenen
+        # Weiss-Tons - der violette Rahmen (LegendBox.TFrame) sorgt für genug
+        # Kontrast zu den bunten Zeilen darunter.
+        _s.configure("LegendHeader.TLabel", background=Colors.PANEL_BG, foreground=Colors.THEME_ACCENT)
+        _s.configure("Legend.TFrame",       background=Colors.PANEL_BG)
+        _s.configure("Legend.TLabel",       background=Colors.PANEL_BG)
+        _s.configure(
+            "LegendBox.TFrame",
+            background=Colors.PANEL_BG,
+            bordercolor=Colors.THEME_ACCENT,
+            lightcolor=Colors.THEME_ACCENT,
+            darkcolor=Colors.THEME_ACCENT,
+            relief="solid",
+            borderwidth=1,
         )
 
     @staticmethod
@@ -565,6 +590,10 @@ class Texts:
     NO_SIGNALS_SELECTED        = "Keine Signale ausgewählt"
     LBL_GROUPS                 = "Signal-Gruppen"
     LBL_OPTIONS                = "Optionen"
+    LBL_LEGEND                 = "Legende"
+    LEGEND_NO_UNIT              = "ohne Einheit"
+    LEGEND_ZERO_SIGNAL          = "Signalverlauf 0"
+    ZERO_SIGNAL_MARKER          = "(!)"
     BTN_GRUPPE_ERSTELLEN       = "Gruppe erstellen"
     BTN_GRUPPE_LOESCHEN        = "Gruppe(n) löschen"
     STATUS_KEIN_SIGNAL         = "Keine Signale ausgewählt"
