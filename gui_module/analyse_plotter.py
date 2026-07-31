@@ -430,6 +430,11 @@ class AnalysePlotter:
             sync_groups = {"Alle Operationen": list(all_axes)} if single_signal_multi_op else axes_dict
             multi_signal_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
             show_all_sync = multi_signal_sync or single_signal_multi_op
+            # Eigene Typ-Checkboxen (z.B. "Original") nur bei einer echten Mischung
+            # mehrerer Typen (z.B. Original + Gefiltert) anzeigen - ist nur ein
+            # einziger Typ vorhanden, waere die Typ-Checkbox nur ein redundantes
+            # Duplikat von "Alle" (beide wuerden exakt dasselbe synchronisieren).
+            show_type_checkboxes = (not single_signal_multi_op) and len(plot_types) > 1
             if show_all_sync:
                 all_sync_var = tk.BooleanVar(value=True)
 
@@ -441,13 +446,20 @@ class AnalysePlotter:
                 all_cb.pack(side="left", padx=5)
             if single_signal_multi_op:
                 sync_enabled["Alle Operationen"] = all_sync_var
-            else:
+            elif show_type_checkboxes:
                 for ptype in plot_types:
                     if len(axes_dict[ptype]) > 1:
                         var = tk.BooleanVar(value=True)
                         sync_enabled[ptype] = var
                         cb = ttk.Checkbutton(sync_row, text=ptype, variable=var)
                         cb.pack(side="left", padx=5)
+            else:
+                # Nur ein Typ vorhanden: "Alle" deckt genau diesen einen Typ ab,
+                # sync_enabled trotzdem befuellen, damit die Sync-Logik in
+                # PlotManager.add_cursor_and_zoom_logic() den Typ per "Alle" findet.
+                for ptype in plot_types:
+                    if len(axes_dict[ptype]) > 1:
+                        sync_enabled[ptype] = all_sync_var
 
             cursor_row = ttk.Frame(extra_frame, style="Panel.TFrame")
             Cfg.Styles.force_apply(cursor_row, "Panel.TFrame")
@@ -778,8 +790,14 @@ class AnalysePlotter:
                 plot_types = ["Original"]
 
             total_subplots = n_groups * len(plot_types)
-            fig_height = max(3, total_subplots * 3)
+            fig_height = max(3, total_subplots * 3.8)
             fig = plt.Figure(figsize=(14, fig_height))
+            # Schon hier berechnet (statt erst kurz vor dem canvas_widget.configure()
+            # weiter unten), damit _show_cursor_panel() (siehe unten) die reale
+            # Plot-Breite kennt, auch falls sie durch einen wiederhergestellten
+            # Cursor-Zustand schon waehrend add_cursor_and_zoom_logic() aufgerufen wird.
+            fig_height_px = int(fig.get_figheight() * fig.get_dpi())
+            fig_width_px  = int(fig.get_figwidth() * fig.get_dpi())
 
             axes_dict = PlotManager._setup_subplot_grid(fig, n_groups, plot_types)
 
@@ -933,7 +951,11 @@ class AnalysePlotter:
                     elif ptype == "Phase":
                         unit_suffix = " [Grad]"
                     title_filter_suffix = filter_str if ptype == "Gefiltert" else ""
-                    ax.set_title(f"Gruppe {group_idx + 1} - {ptype}{title_filter_suffix}{unit_suffix}")
+                    # pad deutlich groesser als der Matplotlib-Standard (6pt): die
+                    # nummerierten Cursor-Kreise (siehe PlotManager._set_pinned_cursor)
+                    # sitzen knapp oberhalb des Achsenrands (xy=(x, 1.0), xytext=(0,4))
+                    # und schneiden sonst in den Titeltext.
+                    ax.set_title(f"Gruppe {group_idx + 1} - {ptype}{title_filter_suffix}{unit_suffix}", pad=22)
 
             axis_mode = getattr(frame, "_axis_mode", "Relative Zeit (s)")
             is_pool   = isinstance(t_full, (list, tuple))
@@ -1039,6 +1061,11 @@ class AnalysePlotter:
             sync_groups = {"Alle Operationen": list(all_axes)} if single_signal_multi_op else axes_dict
             multi_signal_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
             show_all_sync = multi_signal_sync or single_signal_multi_op
+            # Eigene Typ-Checkboxen (z.B. "Original") nur bei einer echten Mischung
+            # mehrerer Typen (z.B. Original + Gefiltert) anzeigen - ist nur ein
+            # einziger Typ vorhanden, waere die Typ-Checkbox nur ein redundantes
+            # Duplikat von "Alle" (beide wuerden exakt dasselbe synchronisieren).
+            show_type_checkboxes = (not single_signal_multi_op) and len(plot_types) > 1
             if show_all_sync:
                 all_sync_var = tk.BooleanVar(value=True)
 
@@ -1050,13 +1077,20 @@ class AnalysePlotter:
                 all_cb.pack(side="left", padx=5)
             if single_signal_multi_op:
                 sync_enabled["Alle Operationen"] = all_sync_var
-            else:
+            elif show_type_checkboxes:
                 for ptype in plot_types:
                     if len(axes_dict[ptype]) > 1:
                         var = tk.BooleanVar(value=True)
                         sync_enabled[ptype] = var
                         cb = ttk.Checkbutton(sync_row, text=ptype, variable=var)
                         cb.pack(side="left", padx=5)
+            else:
+                # Nur ein Typ vorhanden: "Alle" deckt genau diesen einen Typ ab,
+                # sync_enabled trotzdem befuellen, damit die Sync-Logik in
+                # PlotManager.add_cursor_and_zoom_logic() den Typ per "Alle" findet.
+                for ptype in plot_types:
+                    if len(axes_dict[ptype]) > 1:
+                        sync_enabled[ptype] = all_sync_var
 
             cursor_row = ttk.Frame(extra_frame, style="Panel.TFrame")
             Cfg.Styles.force_apply(cursor_row, "Panel.TFrame")
@@ -1183,7 +1217,15 @@ class AnalysePlotter:
                 try:
                     total_width = content_row.winfo_width()
                     if total_width > 250:
-                        content_row.sashpos(0, total_width - 220)
+                        panel_width = 220
+                        # Sash direkt hinter dem tatsaechlichen Plot positionieren
+                        # (fig_width_px + etwas Rand fuer die vertikale Scrollbar),
+                        # NICHT proportional zur Fensterbreite - der Plot hat eine
+                        # feste Pixelbreite (siehe canvas_widget.configure(width=...)
+                        # weiter unten). Auf breiten Bildschirmen klaffte sonst eine
+                        # grosse Luecke zwischen Plot-Ende und Cursor-Panel.
+                        sash_pos = min(fig_width_px + 24, total_width - panel_width)
+                        content_row.sashpos(0, max(sash_pos, 100))
                 except Exception:
                     pass
 
@@ -1315,9 +1357,6 @@ class AnalysePlotter:
             # damit der Abstand zur X-Achsen-Beschriftung überall gleich groß
             # ist, egal wie hoch/niedrig der jeweilige Subplot ausfällt.
             PlotManager.finalize_group_legends(all_axes)
-
-            fig_height_px = int(fig.get_figheight() * fig.get_dpi())
-            fig_width_px = int(fig.get_figwidth() * fig.get_dpi())
 
             v_scrollbar = ttk.Scrollbar(scroll_container, orient="vertical")
             v_scrollbar.pack(side="right", fill="y")

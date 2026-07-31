@@ -222,6 +222,7 @@ class OberflaechenSteuerung:
         self.gui.temp_df      = None
         self.gui.temp_headers = []
         self.gui.temp_units   = []
+        self.gui.signal_groups.clear()
 
         # --- GUI zurücksetzen ---
         self._reset_input_entries(disable_after=True)

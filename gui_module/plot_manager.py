@@ -166,7 +166,7 @@ class PlotManager:
                 )
 
     @staticmethod
-    def finalize_group_legends(axes, clearance_in=0.55, max_legend_height_in=0.9):
+    def finalize_group_legends(axes, clearance_in=0.9, max_legend_height_in=1.15):
         """Erzeugt für Gruppen-Plots (legend_below=True in _configure_ax) die
         Unter-dem-Plot-Legende, in FIGUR-Koordinaten (nicht Achsen-Fraktion)
         positioniert - dadurch hat jede Legende denselben absoluten Abstand
@@ -191,7 +191,7 @@ class PlotManager:
             )
 
     @staticmethod
-    def get_group_legend_margins(fig, clearance_in=0.55, max_legend_height_in=0.9):
+    def get_group_legend_margins(fig, clearance_in=0.9, max_legend_height_in=1.15):
         """Berechnet bottom/hspace für fig.subplots_adjust(...) so, dass IMMER
         mindestens (clearance_in + max_legend_height_in) Zoll absoluter Platz
         für die Unter-dem-Plot-Legende reserviert sind - unabhängig davon, wie
