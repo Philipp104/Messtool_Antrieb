@@ -95,18 +95,15 @@ class SignalAuswahlManager:
             if self.gui.headers.index(h) < len(self.gui.units) else ""
             for h in selectable_headers
         ))
-        color_palette  = Cfg.Colors.UNIT_PALETTE
-        accent_palette = Cfg.Colors.UNIT_PALETTE_ACCENT
-        unit_colors    = {
-            unit: color_palette[i % len(color_palette)]
-            for i, unit in enumerate(unique_units)
-        }
+        # Dynamisch erzeugte Palette statt fester Farbliste: bei mehreren gleichzeitig
+        # geladenen Dateien kommen leicht mehr unterschiedliche Einheiten zusammen,
+        # als eine feste Liste Farben hatte - generate_unit_palette liefert immer
+        # genau len(unique_units) paarweise unterscheidbare Farben, nie eine Dopplung.
+        pastel_colors, accent_colors = Cfg.Colors.generate_unit_palette(len(unique_units))
+        unit_colors = dict(zip(unique_units, pastel_colors))
         # Kräftigere Farben nur für die Legenden-Swatches - die pastelligen
         # unit_colors sind auf einem kleinen 14x14-Feld kaum zu unterscheiden.
-        unit_legend_colors = {
-            unit: accent_palette[i % len(accent_palette)]
-            for i, unit in enumerate(unique_units)
-        }
+        unit_legend_colors = dict(zip(unique_units, accent_colors))
 
         def _is_zero_signal(h):
             """Prüft, ob ein Signal über den gesamten Verlauf (nahezu) konstant 0 ist."""
@@ -131,11 +128,14 @@ class SignalAuswahlManager:
         # --------------------------------------------------------
 
         def on_window_close():
+            # Wird über den <Destroy>-Event von select_window ausgelöst (siehe
+            # create_signal_selection_layout) - läuft also unabhängig davon, wer
+            # das Panel zerstört (erneutes Öffnen der Signalauswahl, Übersichtsplot,
+            # ...). Ruft select_window.destroy() NICHT selbst auf, das würde
+            # innerhalb des eigenen <Destroy>-Handlers eine TclError auslösen.
             self.plot_window_manager.active_signal_window = None
             if hasattr(self.gui, 'overview_window_button'):
                 self.gui.overview_window_button.config(state="normal")
-            if select_window is not None:
-                select_window.destroy()
             # Bei mehreren Dateien (Signal-Pool): zurueck zu Schritt 1 des
             # Mehrfachdatei-Panels statt zur normalen Einzeldatei-Ansicht.
             if hasattr(self.gui, "multi_file_manager") and self.gui.multi_file_manager.is_active():
@@ -155,12 +155,15 @@ class SignalAuswahlManager:
         listbox              = layout["listbox"]
         groups_container     = layout["groups_container"]
         groups_canvas        = layout["groups_canvas"]
-        groups_frame         = layout["groups_frame"]
         groups_wrapper       = layout["groups_wrapper"]
         paned_window         = layout["paned_window"]
         group_buttons_frame  = layout["group_buttons_frame"]
         opts_frame           = layout["opts_frame"]
         actions_frame        = layout["actions_frame"]
+        legend_rows              = layout["legend_rows"]
+        legend_zero_row          = layout["legend_zero_row"]
+        legend_zero_marker_label = layout["legend_zero_marker_label"]
+        legend_zero_text_label   = layout["legend_zero_text_label"]
 
         # --------------------------------------------------------
         #  LISTBOX HILFSFUNKTIONEN
@@ -169,10 +172,36 @@ class SignalAuswahlManager:
         visible_items = []
         _syncing      = [False]
 
+        def update_legend_highlight():
+            """Hebt in der Legende die Einheit(en) der aktuell ausgewählten Signale
+            hervor (und den "!"-Nullsignal-Marker, falls ein ausgewähltes Signal
+            konstant 0 ist)."""
+            active_units = set()
+            any_zero     = False
+            for h in selected_list:
+                idx = self.gui.headers.index(h)
+                active_units.add(self.gui.units[idx].strip() if idx < len(self.gui.units) else "")
+                if h in zero_signal_headers:
+                    any_zero = True
+
+            for unit, (row_frame, unit_label) in legend_rows.items():
+                active = unit in active_units
+                Cfg.Styles.force_apply(row_frame, "LegendActive.TFrame" if active else "Legend.TFrame")
+                Cfg.Styles.force_apply(unit_label, "LegendActive.TLabel" if active else "Legend.TLabel")
+                row_frame.configure(relief="solid" if active else "flat", borderwidth=2 if active else 0)
+
+            Cfg.Styles.force_apply(legend_zero_row, "LegendActive.TFrame" if any_zero else "Legend.TFrame")
+            legend_zero_row.configure(relief="solid" if any_zero else "flat", borderwidth=2 if any_zero else 0)
+            Cfg.Styles.force_apply(
+                legend_zero_marker_label, "ZeroMarkerActive.TLabel" if any_zero else "ZeroMarker.TLabel"
+            )
+            Cfg.Styles.force_apply(legend_zero_text_label, "LegendActive.TLabel" if any_zero else "Legend.TLabel")
+
         def update_selected_display():
             selected_display_var.set(
                 ", ".join(selected_list) if selected_list else Cfg.Texts.STATUS_KEIN_SIGNAL
             )
+            update_legend_highlight()
 
         def selection_clear_all():
             selected = listbox.selection()
@@ -522,7 +551,6 @@ class SignalAuswahlManager:
 
         def on_listbox_click(event):
             """Behandelt Klicks auf die Listbox mit Shift-Unterstützung."""
-            nonlocal selected_list
             try:
                 clicked_index = nearest_index(event.y)
                 if clicked_index < 0 or clicked_index >= len(visible_items):
@@ -649,7 +677,7 @@ class SignalAuswahlManager:
 
             filter_type_cb.bind("<<ComboboxSelected>>", on_filter_type_change)
 
-            def apply_filter():
+            def apply_filter(then_show_characteristic=False):
                 ftype         = filter_type_cb.get()
                 defaults_used = False
 
@@ -750,6 +778,10 @@ class SignalAuswahlManager:
 
                 self.plot_window_manager.update_all_plot_windows()
 
+                popup.destroy()
+                if then_show_characteristic and ftype != Cfg.Defaults.FILTER_TYP:
+                    self.gui.ui_control.show_filter_characteristic_window()
+
             # --- Aktuellen Filterzustand in Dialog eintragen ---
             filter_type_cb.set(self.gui.filter_manager.filter_type or "Tiefpass")
             if self.gui.filter_manager.cutoff_frequency:
@@ -776,7 +808,7 @@ class SignalAuswahlManager:
             ) else "disabled"
             self.filter_char_button = ttk.Button(
                 btn_row, text="Charakteristik anzeigen", state=char_state,
-                command=lambda: self.gui.ui_control.show_filter_characteristic_window()
+                command=lambda: apply_filter(then_show_characteristic=True)
             )
             self.filter_char_button.pack(side=tk.LEFT, padx=6)
 

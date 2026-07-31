@@ -18,12 +18,13 @@ from gui_module.signal_auswahlmanager import SignalAuswahlManager
 from gui_module.live_plot_fenster_manager import LivePlotFensterManager
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-class PlotWindowManager:
+class PlotFensterManager:
     """Verwaltet Plot-Fenster (Erstellung, Aktualisierung, Events)."""
 
     def __init__(self, gui_manager):
         self.gui = gui_manager
         self.active_signal_window = None
+        self.analysis_windows = []
         self.overlay_filter_state = {
             'enabled': False,
             'type': 'Kein Filter',
@@ -35,6 +36,19 @@ class PlotWindowManager:
         # Speichere Referenzen zu Spezialisten
         self.signal_auswahlmanager = SignalAuswahlManager(gui_manager, self)
         self.live_plot_fenster = LivePlotFensterManager(gui_manager, self)
+
+    def close_all_analysis_windows(self):
+        """Schliesst alle offenen Analyse-Ergebnis-Fenster (siehe _create_notebook_window).
+        Wird u.a. von oberflaechen_steuerung.reset_all() bei "Reset komplett" aufgerufen,
+        damit keine Analyse-Fenster mit Referenzen auf die gerade geleerten Daten
+        (self.gui.signals/headers/t) offen stehen bleiben."""
+        for window in self.analysis_windows[:]:
+            try:
+                if window.winfo_exists():
+                    window.destroy()
+            except Exception as e:
+                logger.exception("Analyse-Fenster konnte nicht geschlossen werden: %s", e)
+        self.analysis_windows.clear()
 
     def show_multi_signal_overlay_window(self):
         """Öffnet ein Fenster zur Auswahl beliebig vieler Signale und zeigt sie gemeinsam in einem Plot."""
@@ -58,7 +72,7 @@ class PlotWindowManager:
 
         toolbar_frame = ttk.Frame(plot_frame)
         toolbar_frame.pack(side=tk.TOP, fill=tk.X)
-        toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+        NavigationToolbar2Tk(canvas, toolbar_frame)
 
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
@@ -122,6 +136,18 @@ class PlotWindowManager:
         result_window.title("Analyse-Ergebnisse")
         result_window.state('zoomed')
         self.gui.apply_icon(result_window)
+
+        # Registrieren, damit close_all_analysis_windows() (z.B. bei "Reset komplett")
+        # dieses Fenster wiederfindet; bei eigenständigem Schliessen wieder austragen,
+        # damit die Liste nicht mit toten Fenster-Referenzen waechst.
+        self.analysis_windows.append(result_window)
+
+        def _on_result_window_close():
+            if result_window in self.analysis_windows:
+                self.analysis_windows.remove(result_window)
+            result_window.destroy()
+
+        result_window.protocol("WM_DELETE_WINDOW", _on_result_window_close)
 
         notebook = ttk.Notebook(result_window)
         notebook.pack(fill=tk.BOTH, expand=True)

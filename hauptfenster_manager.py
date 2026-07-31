@@ -34,15 +34,15 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 # ============================================================
 from gui_module import meldungen as messagebox
 from hilfsklassen.zentrales_logging import get_protocol_logger
-from hilfsklassen.datei_handler import FileHandler
-from hilfsklassen.daten_validator import DataValidator
+from hilfsklassen.datei_handler import DateiHandler
+from hilfsklassen.daten_validator import DatenValidator
 from hilfsklassen.filter_manager import FilterManager
 from hilfsklassen.daten_verarbeiter import DatenVerarbeiter
 from gui_module.plot_manager import PlotManager
-from gui_module.gui_layout_manager import GuiLayoutManager
-from gui_module.plot_fenster_manager import PlotWindowManager
-from gui_module.oberflaechen_steuerung import UiControlManager
-from gui_module.analyse_manager import AnalysisManager
+from gui_module.oberflaechen_layout_manager import OberflaechenLayoutManager
+from gui_module.plot_fenster_manager import PlotFensterManager
+from gui_module.oberflaechen_steuerung import OberflaechenSteuerung
+from gui_module.analyse_manager import AnalyseManager
 from gui_module.mehrfachdatei_manager import MehrfachDateiManager
 from gui_module.gui_hilfsfunktionen import center_window as _center_window
 from konfiguration import Cfg
@@ -57,7 +57,7 @@ protocol_logger = get_protocol_logger()
 # ============================================================
 #  KLASSE
 # ============================================================
-class GuiManager:
+class HauptfensterManager:
     """Klasse für die gesamte GUI-Verwaltung als Instanz"""
 
     def __init__(self, get_resource_path):
@@ -94,14 +94,14 @@ class GuiManager:
         self.reset_gui_active  = False
 
         # --- Hilfsklassen ---
-        self.data_validator  = DataValidator()
+        self.data_validator  = DatenValidator()
         self.filter_manager  = FilterManager()
 
         # --- Sub-Manager ---
-        self.ui_control          = UiControlManager(self)
-        self.plot_window_manager = PlotWindowManager(self)
-        self.layout_manager      = GuiLayoutManager(self)
-        self.analysis_manager    = AnalysisManager(self)
+        self.ui_control          = OberflaechenSteuerung(self)
+        self.plot_window_manager = PlotFensterManager(self)
+        self.layout_manager      = OberflaechenLayoutManager(self)
+        self.analysis_manager    = AnalyseManager(self)
         self.multi_file_manager  = MehrfachDateiManager(self)
 
         # --- GUI-Elemente ---
@@ -143,16 +143,47 @@ class GuiManager:
         self.root.mainloop()
 
     def _setup_placeholder(self, entry, placeholder_text):
-        """Delegiert an UiControlManager."""
+        """Delegiert an OberflaechenSteuerung."""
         return self.ui_control.setup_placeholder(entry, placeholder_text)
+
+    def on_ganze_datei_toggled(self):
+        """Sperrt/entsperrt entry1-4 (Start/End Zeile/Spalte) je nach "Ganze Datei
+        verwenden"-Checkbox. Angehakt: Felder werden mit dem vollen Datenbereich
+        der aktuellen Datei neu befuellt und gesperrt. Abgehakt: Felder werden nur
+        entsperrt, ihr aktueller Text bleibt als Ausgangspunkt fuer die manuelle
+        Eingabe erhalten."""
+        if self.df is None:
+            return
+        if self.ganze_datei_var.get():
+            self._prefill_from_df_and_enable()
+        else:
+            for entry in (self.entry1, self.entry2, self.entry3, self.entry4):
+                entry.config(state="normal")
 
     def _prefill_from_df_and_enable(self):
         """
         Befüllt entry1..entry5 mit sinnvollen Zahlen aus self.df,
         ersetzt Placeholder, schaltet Felder frei und setzt Fenster-Combobox.
+        entry1-4 (Zeilen-/Spaltenbereich) bleiben zusaetzlich gesperrt, solange
+        die "Ganze Datei verwenden"-Checkbox angehakt ist - siehe
+        on_ganze_datei_toggled.
         """
         if self.df is None:
             return
+
+        # Bei jedem (Neu-)Laden einer Datei auf den Default "ganze Datei" zurueck,
+        # unabhaengig vom Zustand bei der letzten Datei.
+        self.ganze_datei_var.set(True)
+
+        # Status wie im Mehrfachdatei-Panel (mehrfachdatei_manager.py::_load_file_data):
+        # meldet was tatsaechlich eingelesen wurde, statt nur die Checkbox zu erklaeren.
+        if hasattr(self, "datei_info_label") and self.datei_info_label is not None:
+            hat_zeitstempel = self.timestamps_full is not None
+            ts_info = "mit echten Zeitstempeln" if hat_zeitstempel else "OHNE echte Zeitstempel"
+            self.datei_info_label.config(
+                text=f"{len(self.df)} Zeilen geladen ({ts_info})",
+                foreground="black" if hat_zeitstempel else "#b36b00",
+            )
 
         try:
             end_row_default = int(self.df.index.max())
@@ -175,20 +206,38 @@ class GuiManager:
             start_col_default = 0
             end_col_default   = max(0, len(self.df.columns) - 1)
 
-        sample_rate_default = Cfg.Defaults.SAMPLERATE
+        # Ist die tatsaechliche Aufnahme-Samplerate aus echten Zeitstempeln
+        # bekannt, wird sie automatisch uebernommen und das Feld gesperrt -
+        # eine abweichende manuelle Eingabe wuerde sonst alle Rechenoperationen
+        # (FFT, Filter-Grenzfrequenz relativ zu Nyquist, ...) verfaelschen, da
+        # sie sich nicht mehr auf die reale Aufnahme beziehen wuerden. Ohne
+        # echte Zeitstempel bleibt es wie bisher eine manuelle Eingabe mit
+        # Default-Vorschlag.
+        detected_samplerate = DateiHandler.samplerate_from_timestamps(self.timestamps_full)
+        if detected_samplerate is not None:
+            sample_rate_default = round(detected_samplerate, 4)
+            sample_rate_state   = "disabled"
+        else:
+            sample_rate_default = Cfg.Defaults.SAMPLERATE
+            sample_rate_state   = "normal"
 
-        for entry, val in [
-            (self.entry1, start_row_default),
-            (self.entry2, end_row_default),
-            (self.entry3, start_col_default),
-            (self.entry4, end_col_default),
-            (self.entry5, sample_rate_default),
+        # entry1-4 (Zeilen-/Spaltenbereich) bleiben gesperrt, solange "Ganze Datei
+        # verwenden" angehakt ist - entry5 (Samplerate) folgt stattdessen obiger
+        # Logik (automatisch erkannt -> gesperrt, sonst frei editierbar).
+        range_state = "disabled" if self.ganze_datei_var.get() else "normal"
+
+        for entry, val, state in [
+            (self.entry1, start_row_default, range_state),
+            (self.entry2, end_row_default,   range_state),
+            (self.entry3, start_col_default, range_state),
+            (self.entry4, end_col_default,   range_state),
+            (self.entry5, sample_rate_default, sample_rate_state),
         ]:
             entry.config(state="normal")
             entry.delete(0, tk.END)
             entry.insert(0, str(val))
             entry._is_placeholder = False
-            entry.config(style="EntryNormal.TEntry", state="normal")
+            entry.config(style="EntryNormal.TEntry", state=state)
 
         if hasattr(self, "entry6") and self.entry6:
             self.entry6.config(state="normal")
@@ -297,7 +346,7 @@ class GuiManager:
         self.sheet_combobox.set('CSV')
         self.sheet_combobox.config(state='disabled')
 
-        file_handler           = FileHandler()
+        file_handler           = DateiHandler()
         file_handler.file_path = str(self.Gesamtpfad)
         result                 = file_handler.read_top(self.status_label, self.progress_label)
 
@@ -320,7 +369,7 @@ class GuiManager:
         self.status_label.config(text=Cfg.Status.GUI_SHEET_PROCESSING.format(self.sheet_combobox.get()))
 
         try:
-            file_handler           = FileHandler()
+            file_handler           = DateiHandler()
             file_handler.file_path = str(self.Gesamtpfad)
             result = file_handler.read_dws_excel(
                 self.sheet_combobox.get(), self.status_label, self.progress_label
@@ -434,21 +483,37 @@ class GuiManager:
 
     def _apply_default_values(self):
         """Setzt Standardwerte für leere Eingabefelder."""
-        entries      = [self.entry1, self.entry2, self.entry3, self.entry4, self.entry5, self.entry6]
-        placeholders = Cfg.Ph.EINGABE + [Cfg.Ph.FENSTERTYP]
-        config       = [
-            (entry, ph, dv[0], dv[1])
-            for entry, ph, dv in zip(entries, placeholders, Cfg.Defaults.VALUES_CONFIG)
-        ]
+        # Vor allen Aenderungen erfassen - _prefill_from_df_and_enable() setzt
+        # ganze_datei_var unten selbst auf True, das darf die Entscheidung "war das
+        # ueberhaupt manueller Modus" nicht mehr verfaelschen.
+        war_ganze_datei = hasattr(self, "ganze_datei_var") and self.ganze_datei_var.get()
 
         aenderungen = []
-        for entry, placeholder, default_value, msg in config:
+
+        # entry1-4 (Start/End Zeile/Spalte): dateibezogene Defaults ueber
+        # _prefill_from_df_and_enable() (wie beim Mehrfachdatei-Weg ueber
+        # _refill_range_fields) statt der generischen Cfg.Defaults-Konstanten -
+        # sonst wuerde z.B. "End Spalte -> 100" statt der tatsaechlichen letzten
+        # Spalte der Datei eingetragen und muesste danach erst wieder auf die
+        # echte Dateigroesse begrenzt werden.
+        range_entries = (self.entry1, self.entry2, self.entry3, self.entry4)
+        if self.df is not None and any(getattr(e, "_is_placeholder", False) for e in range_entries):
+            aenderungen.append("Zeilen-/Spaltenbereich -> Dateigröße")
+            self._prefill_from_df_and_enable()
+
+        # entry5 (Samplerate) / entry6 (Fenstertyp): generische, dateiunabhaengige Defaults.
+        for entry, placeholder, default_value, msg in [
+            (self.entry5, Cfg.Ph.SAMPLERATE, str(Cfg.Defaults.SAMPLERATE), f"Samplefrequenz FS -> {Cfg.Defaults.SAMPLERATE}"),
+            (self.entry6, Cfg.Ph.FENSTERTYP, Cfg.Defaults.FENSTERTYP,      f"Fenster -> {Cfg.Defaults.FENSTERTYP}"),
+        ]:
             if entry.get() == placeholder:
                 entry.delete(0, "end")
                 entry.insert(0, default_value)
                 aenderungen.append(msg)
 
-        if aenderungen:
+        # Bei "Ganze Datei verwenden" ist die Verwendung von Defaults erwartetes,
+        # bewusst gewaehltes Verhalten - keine zusaetzliche Bestaetigung noetig.
+        if aenderungen and not war_ganze_datei:
             messagebox.showinfo("Standardwerte", "Default Werte übernommen")
 
     def _enable_analysis_buttons(self):
@@ -458,7 +523,7 @@ class GuiManager:
             self.overview_window_button.config(state="normal")
 
     def _sync_data_validator(self):
-        """Synchronisiert DataValidator mit aktuellen Daten."""
+        """Synchronisiert DatenValidator mit aktuellen Daten."""
         self.data_validator.df           = self.df
         self.data_validator.temp_df      = self.temp_df
         self.data_validator.headers      = self.temp_headers
@@ -466,6 +531,12 @@ class GuiManager:
         self.data_validator.temp_headers = self.temp_headers
         self.data_validator.temp_units   = self.temp_units
         self.data_validator.reset_active = self.reset_active
+        # Bei "Ganze Datei verwenden" ist der Bereich automatisch aus der Datei
+        # berechnet - eine Anpassung dort ist kein Hinweis auf eine zu grosse
+        # manuelle Eingabe und soll daher keinen "wurde begrenzt"-Hinweis zeigen.
+        self.data_validator.suppress_range_hints = (
+            hasattr(self, "ganze_datei_var") and self.ganze_datei_var.get()
+        )
 
     def _process_validated_data(self, validation_result, save_subdir=None, open_overlay=True):
         """Verarbeitet validierte Daten.
@@ -553,6 +624,18 @@ class GuiManager:
         self.status_label.config(text=Cfg.Status.GUI_PROCESSING_SUCCESS.format(
             len(self.signals), len(self.headers)
         ))
+
+        # Nur fuer den Einzeldatei-Weg (open_overlay=True) - beim Batch-Import
+        # (mehrfachdatei_manager.py, open_overlay=False) gibt es dafuer schon die
+        # zusammenfassende "Batch abgeschlossen"-Meldung, das haette sich sonst
+        # mit einer Meldung pro Datei verdoppelt.
+        if open_overlay:
+            dateiname = self.Gesamtpfad.name if self.Gesamtpfad else ""
+            messagebox.showinfo(
+                "Datei verarbeitet",
+                f"{dateiname}\n\n{len(self.signals)} Signal(e) eingelesen." if dateiname
+                else f"{len(self.signals)} Signal(e) eingelesen."
+            )
 
         self._exit_loading_state()
         self._finalize_after_processing(open_overlay=open_overlay)
@@ -784,7 +867,7 @@ class GuiManager:
         self.status_label.config(text=Cfg.Status.FILTER_PLOT_UPDATED)
 
     def update_filter_plot_short(self):
-        """Delegiert an UiControlManager."""
+        """Delegiert an OberflaechenSteuerung."""
         return self.ui_control.update_filter_plot()
 
     def show_filter_characteristic_window(self):
@@ -853,7 +936,7 @@ class GuiManager:
         return self.ui_control.reset_inputs()
 
     def on_reset_selected(self, selected):
-        """Delegiert an UiControlManager."""
+        """Delegiert an OberflaechenSteuerung."""
         return self.ui_control.on_reset_selected(selected)
 
     # --------------------------------------------------------
@@ -887,7 +970,7 @@ class GuiManager:
     # --------------------------------------------------------
 
     def show_path_window(self, selected=None):
-        """Delegiert an UiControlManager."""
+        """Delegiert an OberflaechenSteuerung."""
         return self.ui_control.show_path_window(selected)
 
     def show_help(self):

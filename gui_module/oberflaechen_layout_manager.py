@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 #  KLASSE
 # ============================================================
-class GuiLayoutManager:
+class OberflaechenLayoutManager:
     """Erstellt und verwaltet das Layout der GUI (Frames, Buttons, Comboboxen)."""
 
     def __init__(self, gui_manager):
@@ -660,7 +660,6 @@ class GuiLayoutManager:
             return content
 
         BT_PAD  = Cfg.Layout.Buttons
-        SD_PAD  = Cfg.Layout.Sidebar
 
         # --------------------------------------------------------
         #  1. DATENIMPORT
@@ -815,12 +814,34 @@ class GuiLayoutManager:
                 widget.config(state="disabled")
             return widget
 
-        self.gui.entry1 = _make_entry(Cfg.Ph.START_REIHE,  row=0, col=BG.C1)
-        self.gui.entry2 = _make_entry(Cfg.Ph.END_REIHE,    row=0, col=BG.C2)
-        self.gui.entry3 = _make_entry(Cfg.Ph.START_SPALTE, row=1, col=BG.C1)
-        self.gui.entry4 = _make_entry(Cfg.Ph.END_SPALTE,   row=1, col=BG.C2)
-        self.gui.entry5 = _make_entry(Cfg.Ph.SAMPLERATE,   row=2, col=BG.C1)
-        self.gui.entry6 = _make_entry(Cfg.Ph.FENSTERTYP,   row=2, col=BG.C2, is_combo=True)
+        # "Ganze Datei verwenden" - analog zur gleichnamigen Checkbox im
+        # Mehrfachdatei-Panel (mehrfachdatei_manager.py): angehakt (Default) werden
+        # Start/End Zeile/Spalte automatisch aus der geladenen Datei befuellt und
+        # gesperrt; abgehakt bleiben sie frei editierbar. Siehe
+        # hauptfenster_manager.py::_prefill_from_df_and_enable / on_ganze_datei_toggled.
+        ganze_datei_var = tk.BooleanVar(value=True)
+        self.gui.ganze_datei_var = ganze_datei_var
+        ttk.Checkbutton(
+            section, text="Ganze Datei verwenden", variable=ganze_datei_var,
+            command=self.gui.on_ganze_datei_toggled
+        ).grid(row=0, column=BG.C1, columnspan=2, pady=(0, 0), padx=BG.PADX_ENTRY, sticky="w")
+
+        # Dynamischer Status statt statischem Erklaertext - gleiches Format wie der
+        # Datei-Status im Mehrfachdatei-Panel (mehrfachdatei_manager.py::_load_file_data,
+        # "{len(df)} Zeilen geladen (mit/ohne echte Zeitstempel)"). Wird erst befuellt,
+        # sobald eine Datei geladen ist (siehe hauptfenster_manager.py::_prefill_from_df_and_enable).
+        datei_info_label = ttk.Label(
+            section, text="", foreground="gray45", font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL),
+        )
+        datei_info_label.grid(row=1, column=BG.C1, columnspan=2, pady=(0, PAD), padx=BG.PADX_ENTRY, sticky="w")
+        self.gui.datei_info_label = datei_info_label
+
+        self.gui.entry1 = _make_entry(Cfg.Ph.START_REIHE,  row=2, col=BG.C1)
+        self.gui.entry2 = _make_entry(Cfg.Ph.END_REIHE,    row=2, col=BG.C2)
+        self.gui.entry3 = _make_entry(Cfg.Ph.START_SPALTE, row=3, col=BG.C1)
+        self.gui.entry4 = _make_entry(Cfg.Ph.END_SPALTE,   row=3, col=BG.C2)
+        self.gui.entry5 = _make_entry(Cfg.Ph.SAMPLERATE,   row=4, col=BG.C1)
+        self.gui.entry6 = _make_entry(Cfg.Ph.FENSTERTYP,   row=4, col=BG.C2, is_combo=True)
 
         section.columnconfigure(BG.C1, weight=BG.WEIGHT_C1, uniform=BG.UNIFORM)
         section.columnconfigure(BG.C2, weight=BG.WEIGHT_C2, uniform=BG.UNIFORM)
@@ -1084,6 +1105,28 @@ class GuiLayoutManager:
         # zu den bunten Zeilen darunter.
         legend_style = ttk.Style(select_window)
         legend_style.configure("ZeroMarker.TLabel", foreground=Cfg.Colors.DANGER, background=Cfg.Colors.PANEL_BG)
+        # "Aktiv"-Varianten fuer die Hervorhebung der Einheit(en) des/der gerade
+        # ausgewaehlten Signale(s). Kraeftiger Volltonhintergrund (PRIMARY) + weisser
+        # fetter Text statt der frueheren pastelligen GROUP_SELECTED_BG-Tönung, die
+        # sich auf dem ohnehin hellen PANEL_BG kaum abhob. Zusaetzlich bekommt die
+        # Zeile per row_frame.configure(relief="solid", borderwidth=2) (siehe
+        # signal_auswahlmanager.py update_legend_highlight) einen sichtbaren Rahmen -
+        # Farbe allein reicht bei aehnlich hellen Paletten-Toenen nicht als Signal.
+        legend_style.configure(
+            "LegendActive.TFrame",
+            background=Cfg.Colors.PRIMARY,
+            bordercolor=Cfg.Colors.PRIMARY, lightcolor=Cfg.Colors.PRIMARY, darkcolor=Cfg.Colors.PRIMARY,
+        )
+        legend_style.configure(
+            "LegendActive.TLabel",
+            foreground="white", background=Cfg.Colors.PRIMARY,
+            font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL, "bold"),
+        )
+        legend_style.configure(
+            "ZeroMarkerActive.TLabel",
+            foreground="white", background=Cfg.Colors.PRIMARY,
+            font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL, "bold"),
+        )
 
         legend_frame = ttk.Frame(list_frame, padding=6)
         Cfg.Styles.force_apply(legend_frame, "LegendBox.TFrame")
@@ -1095,6 +1138,10 @@ class GuiLayoutManager:
         )
         Cfg.Styles.force_apply(legend_title, "LegendHeader.TLabel")
         legend_title.pack(anchor="w", pady=(0, 4))
+
+        # Referenzen auf Zeile+Label pro Einheit, damit signal_auswahlmanager.py
+        # bei Signalauswahl die passende Legenden-Zeile hervorheben kann.
+        legend_rows = {}
 
         # ttk.Style statt rohem tk.Frame fuer die Farbfelder: ttkbootstrap ueberschreibt
         # bg/fg von rohen tk-Widgets aktiv, ein eigener ttk-Style pro Farbe wird
@@ -1116,6 +1163,8 @@ class GuiLayoutManager:
             )
             Cfg.Styles.force_apply(unit_label, "Legend.TLabel")
             unit_label.pack(side=tk.LEFT, anchor="w")
+
+            legend_rows[unit] = (legend_row, unit_label)
 
         zero_row = ttk.Frame(legend_frame)
         Cfg.Styles.force_apply(zero_row, "Legend.TFrame")
@@ -1196,6 +1245,22 @@ class GuiLayoutManager:
             groups_canvas.unbind_all("<Button-5>"),
         ))
 
+        # select_window wird bei Navigation (erneutes Öffnen der Signalauswahl,
+        # Übersichtsplot) einfach über mid_region.winfo_children()-Destroy entsorgt,
+        # nicht über einen expliziten Schliessen-Button/WM_DELETE_WINDOW (select_window
+        # ist ein Frame, kein Toplevel). Der <Destroy>-Event ist daher der einzige
+        # zuverlässige Punkt, um on_window_close auszulösen und dabei auch die
+        # bind_all-Mausrad-Bindings zu entfernen, falls <Leave> vorher nicht gefeuert
+        # hat (z.B. wenn das Panel verschwindet, während die Maus noch über
+        # groups_canvas steht).
+        def _on_select_window_destroy(event):
+            groups_canvas.unbind_all("<MouseWheel>")
+            groups_canvas.unbind_all("<Button-4>")
+            groups_canvas.unbind_all("<Button-5>")
+            on_window_close()
+
+        select_window.bind("<Destroy>", _on_select_window_destroy)
+
         return {
             "select_window":       select_window,
             "search_var":          search_var,
@@ -1210,6 +1275,10 @@ class GuiLayoutManager:
             "group_buttons_frame": group_buttons_frame,
             "opts_frame":          opts_frame,
             "actions_frame":       actions_frame,
+            "legend_rows":              legend_rows,
+            "legend_zero_row":          zero_row,
+            "legend_zero_marker_label": zero_marker_label,
+            "legend_zero_text_label":   zero_text_label,
         }
 
     def create_live_plot_layout(self, selected_signal):

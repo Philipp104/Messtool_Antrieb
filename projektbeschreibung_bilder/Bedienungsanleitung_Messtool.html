@@ -334,6 +334,16 @@
                 <strong>Beispiel</strong>
                 FS = 1000&nbsp;Hz &rarr; dt = 0,001&nbsp;s = 1&nbsp;ms pro Messwert.
             </div>
+            <div class="box box-info">
+                <strong>Automatische Erkennung</strong>
+                Enthält die geladene Datei echte Zeitstempel, wird die tatsächliche
+                Aufnahme-Samplefrequenz automatisch daraus berechnet (Median der
+                Zeitabstände) und das Feld ist gesperrt – eine manuelle Eingabe
+                würde sonst nicht mehr zur echten Aufnahme passen und alle
+                Berechnungen (FFT, Filter, Zeitachse) verfälschen. Nur wenn die
+                Datei keine echten Zeitstempel enthält, bleibt das Feld wie bisher
+                frei editierbar.
+            </div>
 
             <h3>Fenstertyp</h3>
             <ul>
@@ -442,31 +452,39 @@
                 Die Checkboxen „Synchroner Zoom" synchronisieren den Scroll-Zoom auf der Zeitachse über mehrere Subplots hinweg. Bei mehreren Plot-Typen kann die Synchronisierung pro Gruppe separat aktiviert oder deaktiviert werden.
             </p>
 
-            <h3>Cursor &amp; Bereichsauswahl</h3>
-            <p>Durch Klicken und Ziehen im Plot wird ein Zeitbereich markiert. Das Programm:</p>
+            <h3>Plot-Bedienung (Maus)</h3>
             <ul>
-                <li>Zeigt zwei vertikale Markierungslinien (Start und Ende)</li>
-                <li>Zoomt automatisch in den gewählten Zeitbereich</li>
-                <li>Rendert alle Subplots auf den selektierten Bereich neu</li>
-                <li>Zeigt bei Cursor-Bewegung den aktuellen Messwert als Annotation an</li>
+                <li><strong>Linksklick:</strong> Zoom bzw. Cursor setzen (siehe unten, abhängig vom gewählten Cursor-Modus)</li>
+                <li><strong>Rechtsklick halten + ziehen:</strong> Plot verschieben (Pan)</li>
+                <li><strong>Mausrad über einem Subplot:</strong> zoomt diesen Subplot (bzw. alle synchronisierten bei aktivem synchronem Zoom)</li>
+                <li><strong>Mausrad über freier Fläche neben den Plots:</strong> scrollt das Fenster</li>
             </ul>
 
-            <h3>Zuruecksetzen (Button)</h3>
+            <h3>Cursor-Modus: „Einer"</h3>
+            <p>Zwei-Klick-Bereichsauswahl: der erste Klick setzt den Startpunkt, der zweite Klick den Endpunkt. Das Programm:</p>
+            <ul>
+                <li>Zeigt eine vertikale Markierungslinie mit eingekreister Nummer (1/2) je Klick</li>
+                <li>Zoomt nach dem zweiten Klick automatisch in den gewählten Zeitbereich</li>
+                <li>Rendert alle synchronisierten Subplots auf den selektierten Bereich neu</li>
+                <li>Bei Gruppen-Plots erscheinen die Messwerte aller Signale zusätzlich als Karte im Seitenpanel „Gesetzte Cursor" (siehe unten) – nach dem Zoomen verschwinden Markierung und Karte automatisch wieder, da die Auswahl damit abgeschlossen ist</li>
+            </ul>
+
+            <h3>Cursor-Modus: „Mehrere"</h3>
             <p>
-                Stellt die ursprüngliche Zoom-Ansicht wieder her und löscht die Cursor-Bereichsauswahl. X- und Y-Achsenlimits werden exakt auf die beim Öffnen des Fensters gültigen Werte zurückgesetzt.
+                Jeder Linksklick setzt einen zusätzlichen, dauerhaft angezeigten Cursor (fortlaufend durchnummeriert), ohne zu zoomen. Bei Gruppen-Plots erscheint pro Cursor eine eigene Karte im Seitenpanel „Gesetzte Cursor" mit den Werten aller Signale an dieser Stelle.
             </p>
-
-            <h3>Toolbar</h3>
-            <ul>
-                <li><strong>Lupe (Zoom-Box):</strong> Rechteck aufziehen zum Zoomen</li>
-                <li><strong>Verschieben:</strong> Plot mit der Maus verschieben (Pan)</li>
-                <li><strong>Speichern:</strong> Aktuellen Plot als PNG exportieren</li>
-                <li><strong>Home:</strong> Zurück zur ursprünglichen Ansicht</li>
-            </ul>
             <div class="box box-info">
-                <strong>Hinweis</strong>
-                Der Mausrad-Zoom ist immer aktiv, unabhängig vom gewählten Toolbar-Werkzeug. Scrollen über einem Subplot zoomt nur diesen – außer bei aktiviertem synchronem Zoom.
+                <strong>Gesetzte Cursor (Seitenpanel)</strong>
+                Bei Gruppen-Plots (mehrere Signale je Subplot) ist im Plot selbst kein Platz für eine Wertetabelle – stattdessen öffnet sich neben dem Plot ein eigener, in der Breite verschiebbarer Bereich mit einer Karte pro gesetztem Cursor (Signalname, x-/y-Werte). Das Panel erscheint automatisch beim ersten gesetzten Cursor und verschwindet wieder, sobald keine Cursor mehr gesetzt sind (Zurücksetzen, alle Cursor aufgehoben, oder – im Modus „Einer" – nach dem Reinzoomen beim zweiten Klick).
             </div>
+            <p>Bei einfachen Plots (ein Signal je Subplot) wird der Messwert stattdessen direkt als Annotation im Plot angezeigt.</p>
+
+            <h3>Zurücksetzen / Zurück / Vor (Buttons)</h3>
+            <ul>
+                <li><strong>Zurücksetzen:</strong> stellt die ursprüngliche Zoom-Ansicht wieder her und löscht alle Cursor und Bereichsauswahlen. X- und Y-Achsenlimits werden exakt auf die beim Öffnen des Fensters gültigen Werte zurückgesetzt.</li>
+                <li><strong>◀ Zurück / ▶ Vor:</strong> navigieren durch den Zoom-/Cursor-Verlauf (wie „Undo"/„Redo"), ersetzen die frühere Matplotlib-Toolbar.</li>
+                <li><strong>Export:</strong> exportiert den aktuell sichtbaren Ausschnitt.</li>
+            </ul>
         </section>
 
         <hr class="divider">
@@ -680,22 +698,38 @@
 
             <h3>Schritt 1 &ndash; Globale Einstellungen</h3>
             <p>
-                Samplefrequenz und Fenstertyp werden hier einmal gemeinsam für alle
-                ausgewählten Dateien festgelegt.
+                Der Fenstertyp wird hier einmal gemeinsam für alle ausgewählten
+                Dateien festgelegt. Die Samplefrequenz gibt es hier nicht mehr
+                global &ndash; jede Datei erkennt bzw. benötigt ihre eigene (siehe
+                Schritt&nbsp;2).
             </p>
+            <div class="box box-info">
+                <strong>Checkbox „Alle Dateien komplett reinladen"</strong>
+                Standardmäßig angehakt. Ist sie aktiv, wird Schritt&nbsp;2 (die
+                einzelnen Datei-Tabs) beim Klick auf „Weiter" übersprungen &ndash;
+                alle Dateien werden sofort mit „Ganze Datei verwenden" verarbeitet.
+                Nach Abschluss erscheint eine Meldung mit der pro Datei tatsächlich
+                verwendeten Samplefrequenz (siehe unten), da die Datei-Tabs dafür ja
+                nicht einzeln durchgesehen werden. Zum manuellen Anpassen pro Datei
+                (Zeilen-/Spaltenbereich) einfach abhaken.
+            </div>
 
             <h3>Schritt 2 &ndash; Datei-Tabs</h3>
             <p>Jede Datei bekommt einen eigenen, farbig markierten Tab mit:</p>
             <ul>
                 <li>Sheet-Auswahl (bei Excel-Dateien)</li>
                 <li>Start-/End-Zeile und -Spalte (oder „Ganze Datei verwenden")</li>
+                <li>einem eigenen Samplefrequenz-Feld für diese Datei &ndash; enthält die
+                    Datei echte Zeitstempel, wird die reale Aufnahme-Samplefrequenz
+                    automatisch erkannt und das Feld gesperrt; sonst bleibt es
+                    editierbar (Standardwert als Vorschlag)</li>
                 <li>nach dem Verarbeiten: den eigenen Ausgabewerten dieser Datei (Startzeit, Endzeit, Samples, dt, df)</li>
             </ul>
             <p>
                 Über „Verarbeiten" läuft jede Datei <strong>unabhängig</strong> durch
-                dieselbe Pipeline wie beim Einzelimport. Unterschiedliche Spaltenanzahl
-                oder Dauer zwischen den Dateien ist kein Problem, da nichts zeitlich
-                zusammengeführt wird.
+                dieselbe Pipeline wie beim Einzelimport, mit ihrer eigenen
+                Samplefrequenz. Unterschiedliche Spaltenanzahl oder Dauer zwischen
+                den Dateien ist kein Problem, da nichts zeitlich zusammengeführt wird.
             </p>
 
             <h3>Automatisches Speichern pro Datei</h3>
@@ -725,7 +759,7 @@
             <p>
                 Schließen Sie das Signalauswahl-Fenster oder klicken Sie auf „Eingaben
                 zurücksetzen", gelangen Sie zurück zu Schritt&nbsp;1
-                (Samplefrequenz/Fenstertyp) &ndash; die bereits geladenen Dateien bleiben
+                (Fenstertyp) &ndash; die bereits geladenen Dateien bleiben
                 dabei erhalten, sodass direkt erneut verarbeitet werden kann.
                 „Komplett zurücksetzen" verwirft dagegen auch die geladenen Dateien und
                 beendet den Mehrfachdatei-Modus.

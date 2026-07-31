@@ -120,7 +120,7 @@ class DatenVerarbeiter:
     @filter_type.setter
     def filter_type(self, value):
         if value not in Cfg.Defaults.FILTER_CHARAKTERISTIKEN:
-            raise ValueError(Cfg.Errors.PROC_INVALID_WINDOW.format(value))
+            raise ValueError(Cfg.Errors.FILTER_INVALID_TYPE.format(value))
         self._filter_type = value
 
     @property

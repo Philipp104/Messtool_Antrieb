@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import tkinter as tk
 from tkinter import ttk, filedialog
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import seaborn as sns
 import logging
 
@@ -86,6 +86,12 @@ class AnalysePlotter:
         timestamps_full = timestamps
         if not hasattr(frame, "_cursor_range"):
             frame._cursor_range = None
+        if not hasattr(frame, "_range_history"):
+            # Historie der Zeitbereichs-Zooms (Bereichsauswahl) - überlebt den
+            # kompletten Neuaufbau von frame in _render(), im Gegensatz zur
+            # feineren Scroll/Pan-Historie, die pro Figure in plot_manager.py lebt.
+            frame._range_history       = [None]
+            frame._range_history_index = 0
 
         def _get_effective_range():
             cursor_range = getattr(frame, "_cursor_range", None)
@@ -375,13 +381,23 @@ class AnalysePlotter:
                     else:
                         last_ax.set_xlabel("Zeit [s]")
 
-            control_frame = ttk.Frame(frame)
-            control_frame.pack(side="top", fill="x", padx=5, pady=5)
+            toolbar_row = ttk.Frame(frame)
+            toolbar_row.pack(side="top", fill="x", padx=5, pady=5)
 
-            ttk.Label(control_frame, text="Zeitachse:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            toolbar_panel = ttk.Frame(toolbar_row, style="LegendBox.TFrame")
+            Cfg.Styles.force_apply(toolbar_panel, "LegendBox.TFrame")
+            toolbar_panel.pack(side="left")
+
+            # Zeitachse gehört mit ins violett umrahmte, graue Panel (zusammen
+            # mit den 4 Buttons) - Synchron/Cursor stehen bewusst AUSSERHALB,
+            # daneben (siehe extra_frame unten).
+            zeitachse_frame = ttk.Frame(toolbar_panel, style="Panel.TFrame")
+            Cfg.Styles.force_apply(zeitachse_frame, "Panel.TFrame")
+
+            ttk.Label(zeitachse_frame, text="Zeitachse:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
             axis_mode_var = tk.StringVar(value=axis_mode)
             axis_mode_combo = ttk.Combobox(
-                control_frame, textvariable=axis_mode_var,
+                zeitachse_frame, textvariable=axis_mode_var,
                 values=["Relative Zeit (s)", "Uhrzeit"],
                 state="normal",
                 width=16
@@ -395,10 +411,25 @@ class AnalysePlotter:
 
             axis_mode_combo.bind("<<ComboboxSelected>>", _on_axis_mode_changed)
 
-            ttk.Label(control_frame, text="Synchron:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            extra_frame = ttk.Frame(toolbar_row, style="LegendBox.TFrame")
+            Cfg.Styles.force_apply(extra_frame, "LegendBox.TFrame")
+            extra_frame.pack(side="left", padx=(20, 5), pady=5)
+
+            sync_row = ttk.Frame(extra_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(sync_row, "Panel.TFrame")
+            sync_row.pack(side="top", anchor="w", padx=5, pady=(5, 2))
+            ttk.Label(sync_row, text="Synchron:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
             sync_enabled = {}
-            show_all_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
+            # Bei nur einem Signal/einer Gruppe hat jede Operationstyp-Gruppe
+            # (Original/Gefiltert/AVG/...) nur eine einzige Achse - dort kann man
+            # nicht "mehrere Achsen desselben Typs" synchronisieren. Stattdessen
+            # wird in diesem Fall EINE Gruppe mit allen Operationen des einen
+            # Signals gebildet, damit "Alle" trotzdem etwas zum Synchronisieren hat.
+            single_signal_multi_op = (n_signals == 1 and len(plot_types) > 1)
+            sync_groups = {"Alle Operationen": list(all_axes)} if single_signal_multi_op else axes_dict
+            multi_signal_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
+            show_all_sync = multi_signal_sync or single_signal_multi_op
             if show_all_sync:
                 all_sync_var = tk.BooleanVar(value=True)
 
@@ -406,16 +437,22 @@ class AnalysePlotter:
                     for var in sync_enabled.values():
                         var.set(all_sync_var.get())
 
-                all_cb = ttk.Checkbutton(control_frame, text="Alle", variable=all_sync_var, command=_set_all_sync)
+                all_cb = ttk.Checkbutton(sync_row, text="Alle", variable=all_sync_var, command=_set_all_sync)
                 all_cb.pack(side="left", padx=5)
-            for ptype in plot_types:
-                if len(axes_dict[ptype]) > 1:
-                    var = tk.BooleanVar(value=True)
-                    sync_enabled[ptype] = var
-                    cb = ttk.Checkbutton(control_frame, text=ptype, variable=var)
-                    cb.pack(side="left", padx=5)
+            if single_signal_multi_op:
+                sync_enabled["Alle Operationen"] = all_sync_var
+            else:
+                for ptype in plot_types:
+                    if len(axes_dict[ptype]) > 1:
+                        var = tk.BooleanVar(value=True)
+                        sync_enabled[ptype] = var
+                        cb = ttk.Checkbutton(sync_row, text=ptype, variable=var)
+                        cb.pack(side="left", padx=5)
 
-            ttk.Label(control_frame, text="Cursor:", font=("Arial", 10, "bold")).pack(side="left", padx=(15, 5))
+            cursor_row = ttk.Frame(extra_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(cursor_row, "Panel.TFrame")
+            cursor_row.pack(side="top", anchor="w", padx=5, pady=(2, 5))
+            ttk.Label(cursor_row, text="Cursor:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
             cursor_single_var = tk.BooleanVar(value=True)
             cursor_multi_var  = tk.BooleanVar(value=False)
@@ -433,16 +470,38 @@ class AnalysePlotter:
                     cursor_multi_var.set(True)
 
             ttk.Checkbutton(
-                control_frame, text="Einer", variable=cursor_single_var,
+                cursor_row, text="Einer", variable=cursor_single_var,
                 command=_on_cursor_single_toggle
             ).pack(side="left", padx=5)
             ttk.Checkbutton(
-                control_frame, text="Mehrere", variable=cursor_multi_var,
+                cursor_row, text="Mehrere", variable=cursor_multi_var,
                 command=_on_cursor_multi_toggle
             ).pack(side="left", padx=5)
 
+            bedienung_frame = ttk.Frame(toolbar_row, style="LegendBox.TFrame")
+            Cfg.Styles.force_apply(bedienung_frame, "LegendBox.TFrame")
+            bedienung_frame.pack(side="left", padx=(10, 5), pady=5)
+
+            bedienung_inner = ttk.Frame(bedienung_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(bedienung_inner, "Panel.TFrame")
+            bedienung_inner.pack(padx=5, pady=5)
+
+            ttk.Label(
+                bedienung_inner, text="Plot-Bedienung", font=("Arial", 10, "bold"),
+                style="Panel.TLabel"
+            ).pack(side="top", anchor="w")
+            ttk.Label(bedienung_inner, text="Linksklick: Zoom", style="Panel.TLabel").pack(side="top", anchor="w")
+            ttk.Label(
+                bedienung_inner, text="Rechtsklick halten: Verschieben", style="Panel.TLabel"
+            ).pack(side="top", anchor="w")
+
             def _is_time_axis(ax):
                 return ax in time_axes
+
+            def _push_range_history(new_range):
+                del frame._range_history[frame._range_history_index + 1:]
+                frame._range_history.append(new_range)
+                frame._range_history_index = len(frame._range_history) - 1
 
             def _on_cursor_range_selected(x0, x1, ax):
                 prev = getattr(frame, "_cursor_range", None)
@@ -450,34 +509,65 @@ class AnalysePlotter:
                 if prev == new_range:
                     return
                 frame._cursor_range = new_range
+                _push_range_history(new_range)
                 _render()
 
             def _on_cursor_range_cleared():
                 if getattr(frame, "_cursor_range", None) is None:
                     return
                 frame._cursor_range = None
+                _push_range_history(None)
                 _render()
+
+            def _history_back():
+                fig = getattr(frame, "_current_fig", None)
+                if fig is not None and getattr(fig, "_history_can_go_back", lambda: False)():
+                    fig._history_back()
+                    return
+                if frame._range_history_index > 0:
+                    frame._range_history_index -= 1
+                    frame._cursor_range = frame._range_history[frame._range_history_index]
+                    _render()
+
+            def _history_forward():
+                fig = getattr(frame, "_current_fig", None)
+                if fig is not None and getattr(fig, "_history_can_go_forward", lambda: False)():
+                    fig._history_forward()
+                    return
+                if frame._range_history_index < len(frame._range_history) - 1:
+                    frame._range_history_index += 1
+                    frame._cursor_range = frame._range_history[frame._range_history_index]
+                    _render()
 
             PlotManager.add_cursor_and_zoom_logic(
                 fig,
                 all_axes,
                 signal_data,
-                axes_dict,
+                sync_groups,
                 sync_enabled,
                 range_selected_callback=_on_cursor_range_selected,
                 range_cleared_callback=_on_cursor_range_cleared,
                 selection_filter=_is_time_axis,
                 multi_cursor_var=cursor_multi_var,
             )
+            frame._current_fig = fig
 
-            reset_frame = ttk.Frame(frame)
-            reset_frame.pack(side="top", fill="x", padx=5, pady=(0, 5))
+            reset_frame = ttk.Frame(toolbar_panel, style="Panel.TFrame")
+            Cfg.Styles.force_apply(reset_frame, "Panel.TFrame")
+            reset_frame.pack(side="top", padx=5, pady=(5, 2))
 
             def _reset_zoom_selection():
                 if hasattr(fig, "_reset_zoom_selection"):
                     fig._reset_zoom_selection()
 
             ttk.Button(reset_frame, text="Zurücksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
+
+            nav_frame = ttk.Frame(reset_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(nav_frame, "Panel.TFrame")
+            nav_frame.pack(side="left", padx=5)
+
+            ttk.Button(nav_frame, text="◀", width=3, command=_history_back).pack(side="left", padx=(2, 1), pady=2)
+            ttk.Button(nav_frame, text="▶", width=3, command=_history_forward).pack(side="left", padx=(1, 2), pady=2)
 
             def _export():
                 AnalysePlotter._export_figure_as_png(
@@ -486,6 +576,8 @@ class AnalysePlotter:
 
             ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)
 
+            zeitachse_frame.pack(side="top", padx=5, pady=(2, 5))
+
             fig.tight_layout()
             # Rand links/rechts reservieren, damit Legende (rechts, ausserhalb)
             # und Gruppen-Cursorboxen (links, ausserhalb) nicht abgeschnitten werden.
@@ -493,9 +585,6 @@ class AnalysePlotter:
 
             fig_height_px = int(fig.get_figheight() * fig.get_dpi())
             fig_width_px = int(fig.get_figwidth() * fig.get_dpi())
-
-            toolbar_frame = ttk.Frame(frame)
-            toolbar_frame.pack(side="top", fill="x")
 
             scroll_container = ttk.Frame(frame)
             scroll_container.pack(side="top", fill="both", expand=True)
@@ -523,13 +612,34 @@ class AnalysePlotter:
             canvas_widget.configure(height=fig_height_px, width=fig_width_px)
             canvas_widget.pack(fill="none", expand=False)
 
-            toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
-            toolbar.update()
-            toolbar.pack(side="right")
-
             def _on_configure(event):
                 scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
             inner_frame.bind("<Configure>", _on_configure)
+
+            def _on_figure_scroll(event):
+                # Über einer Achse macht PlotManager mit dem Mausrad Zoom (siehe
+                # add_cursor_and_zoom_logic) - das bleibt unangetastet. Nur wenn
+                # der Rand daneben liegt (event.inaxes ist dann None - z.B. über
+                # den Cursorboxen links oder der Legende rechts), scrollt das
+                # Mausrad stattdessen das Plot-Fenster hoch/runter, damit man
+                # nicht immer die Scrollbar manuell ziehen muss.
+                if event.inaxes is not None:
+                    return
+                direction = -1 if event.button == "up" else 1
+                scroll_canvas.yview_scroll(direction * 3, "units")
+
+            fig.canvas.mpl_connect("scroll_event", _on_figure_scroll)
+
+            def _on_blank_area_scroll(event):
+                # Der weisse Bereich neben der eingebetteten Figur (die hat eine
+                # feste Pixelgroesse) gehoert nicht mehr zu matplotlib, sondern
+                # ist einfach der Hintergrund von scroll_canvas selbst - dahin
+                # kommt _on_figure_scroll oben nie. Deshalb hier zusaetzlich ein
+                # normaler Tkinter-Mausrad-Handler direkt auf scroll_canvas.
+                direction = -1 if event.delta > 0 else 1
+                scroll_canvas.yview_scroll(direction * 3, "units")
+
+            scroll_canvas.bind("<MouseWheel>", _on_blank_area_scroll)
 
 
         _render()
@@ -543,6 +653,12 @@ class AnalysePlotter:
         timestamps_full = timestamps
         if not hasattr(frame, "_cursor_range"):
             frame._cursor_range = None
+        if not hasattr(frame, "_range_history"):
+            # Historie der Zeitbereichs-Zooms (Bereichsauswahl) - überlebt den
+            # kompletten Neuaufbau von frame in _render(), im Gegensatz zur
+            # feineren Scroll/Pan-Historie, die pro Figure in plot_manager.py lebt.
+            frame._range_history       = [None]
+            frame._range_history_index = 0
 
         def _get_effective_range():
             cursor_range = getattr(frame, "_cursor_range", None)
@@ -724,7 +840,7 @@ class AnalysePlotter:
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
-                        PlotManager._configure_ax(ax, "Amplitude")
+                        PlotManager._configure_ax(ax, "Amplitude", legend_below=True)
 
                     elif ptype == "Gefiltert":
                         for sig in group_signals:
@@ -733,7 +849,7 @@ class AnalysePlotter:
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
-                        PlotManager._configure_ax(ax, "Amplitude")
+                        PlotManager._configure_ax(ax, "Amplitude", legend_below=True)
 
                     elif ptype == "AVG":
                         for sig in group_signals:
@@ -745,7 +861,7 @@ class AnalysePlotter:
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
-                        PlotManager._configure_ax(ax, "Amplitude")
+                        PlotManager._configure_ax(ax, "Amplitude", legend_below=True)
 
                     elif ptype == "RMS":
                         for sig in group_signals:
@@ -757,7 +873,7 @@ class AnalysePlotter:
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
-                        PlotManager._configure_ax(ax, "Amplitude")
+                        PlotManager._configure_ax(ax, "Amplitude", legend_below=True)
 
                     elif ptype == "Ableitung":
                         for sig in group_signals:
@@ -768,7 +884,7 @@ class AnalysePlotter:
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
                         unit_diff = f"{unit_display}/s" if unit_display != "Einheiten: gemischt" else "Einheiten: gemischt"
-                        PlotManager._configure_ax(ax, f"Ableitung [{unit_diff}]", show_legend=True)
+                        PlotManager._configure_ax(ax, f"Ableitung [{unit_diff}]", show_legend=True, legend_below=True)
 
                     elif ptype == "Integral":
                         for sig in group_signals:
@@ -779,14 +895,14 @@ class AnalysePlotter:
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
                         unit_int = f"{unit_display}*s" if unit_display != "Einheiten: gemischt" else "Einheiten: gemischt"
-                        PlotManager._configure_ax(ax, f"Integral [{unit_int}]", show_legend=True)
+                        PlotManager._configure_ax(ax, f"Integral [{unit_int}]", show_legend=True, legend_below=True)
 
                     elif ptype == "Amplitude":
                         for sig in group_signals:
                             freq, fft_amp, _ = AnalysePlotter._fft_amplitude(sig["filtered"], dt, window_type)
                             sns.lineplot(x=freq, y=fft_amp, ax=ax, linewidth=1.2, label=sig["header"])
                             signal_data.setdefault(ax, []).append((freq, fft_amp, sig["header"]))
-                        PlotManager._configure_ax(ax, "Amplitude", show_legend=True)
+                        PlotManager._configure_ax(ax, "Amplitude", show_legend=True, legend_below=True)
 
                     elif ptype == "Phase":
                         for sig in group_signals:
@@ -794,7 +910,7 @@ class AnalysePlotter:
                             fft_phase = np.angle(fft_complex, deg=True)
                             sns.lineplot(x=freq, y=fft_phase, ax=ax, linewidth=1.2, label=sig["header"])
                             signal_data.setdefault(ax, []).append((freq, fft_phase, sig["header"]))
-                        PlotManager._configure_ax(ax, "Phase [Grad]", show_legend=True)
+                        PlotManager._configure_ax(ax, "Phase [Grad]", show_legend=True, legend_below=True)
 
                     elif ptype == "Statistik":
                         for sig in group_signals:
@@ -802,12 +918,12 @@ class AnalysePlotter:
                             std_val = np.std(sig["filtered"])
                             sns.lineplot(x=sig["t_local"], y=sig["filtered"], ax=ax, linewidth=1.2, label=sig["header"])
                             ax.axhline(y=mean_val, linestyle="--", linewidth=1,
-                                       label=f"{sig['header']} Mean={mean_val:.4g}")
+                                       label=f"{sig['header']} Mean={mean_val:.4g}, Std={std_val:.4g}")
                             signal_data.setdefault(ax, []).append((sig["t_local"], sig["filtered"], sig["header"]))
                         time_axes.add(ax)
                         if xlim_start is not None and xlim_end is not None:
                             ax.set_xlim(xlim_start, xlim_end)
-                        PlotManager._configure_ax(ax, "Amplitude")
+                        PlotManager._configure_ax(ax, "Amplitude", legend_below=True)
 
                     unit_suffix = f" [{unit_display}]"
                     if ptype == "Ableitung":
@@ -816,7 +932,8 @@ class AnalysePlotter:
                         unit_suffix = f" [{unit_int}]"
                     elif ptype == "Phase":
                         unit_suffix = " [Grad]"
-                    ax.set_title(f"Gruppe {group_idx + 1} - {ptype}{unit_suffix}")
+                    title_filter_suffix = filter_str if ptype == "Gefiltert" else ""
+                    ax.set_title(f"Gruppe {group_idx + 1} - {ptype}{title_filter_suffix}{unit_suffix}")
 
             axis_mode = getattr(frame, "_axis_mode", "Relative Zeit (s)")
             is_pool   = isinstance(t_full, (list, tuple))
@@ -873,13 +990,23 @@ class AnalysePlotter:
                     else:
                         last_ax.set_xlabel("Zeit [s]")
 
-            control_frame = ttk.Frame(frame)
-            control_frame.pack(side="top", fill="x", padx=5, pady=5)
+            toolbar_row = ttk.Frame(frame)
+            toolbar_row.pack(side="top", fill="x", padx=5, pady=5)
 
-            ttk.Label(control_frame, text="Zeitachse:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            toolbar_panel = ttk.Frame(toolbar_row, style="LegendBox.TFrame")
+            Cfg.Styles.force_apply(toolbar_panel, "LegendBox.TFrame")
+            toolbar_panel.pack(side="left")
+
+            # Zeitachse gehört mit ins violett umrahmte, graue Panel (zusammen
+            # mit den 4 Buttons) - Synchron/Cursor stehen bewusst AUSSERHALB,
+            # daneben (siehe extra_frame unten).
+            zeitachse_frame = ttk.Frame(toolbar_panel, style="Panel.TFrame")
+            Cfg.Styles.force_apply(zeitachse_frame, "Panel.TFrame")
+
+            ttk.Label(zeitachse_frame, text="Zeitachse:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
             axis_mode_var = tk.StringVar(value=axis_mode)
             axis_mode_combo = ttk.Combobox(
-                control_frame, textvariable=axis_mode_var,
+                zeitachse_frame, textvariable=axis_mode_var,
                 values=["Relative Zeit (s)", "Uhrzeit"],
                 state="normal",
                 width=16
@@ -893,10 +1020,25 @@ class AnalysePlotter:
 
             axis_mode_combo.bind("<<ComboboxSelected>>", _on_axis_mode_changed)
 
-            ttk.Label(control_frame, text="Synchron:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            extra_frame = ttk.Frame(toolbar_row, style="LegendBox.TFrame")
+            Cfg.Styles.force_apply(extra_frame, "LegendBox.TFrame")
+            extra_frame.pack(side="left", padx=(20, 5), pady=5)
+
+            sync_row = ttk.Frame(extra_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(sync_row, "Panel.TFrame")
+            sync_row.pack(side="top", anchor="w", padx=5, pady=(5, 2))
+            ttk.Label(sync_row, text="Synchron:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
             sync_enabled = {}
-            show_all_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
+            # Bei nur einem Signal/einer Gruppe hat jede Operationstyp-Gruppe
+            # (Original/Gefiltert/AVG/...) nur eine einzige Achse - dort kann man
+            # nicht "mehrere Achsen desselben Typs" synchronisieren. Stattdessen
+            # wird in diesem Fall EINE Gruppe mit allen Operationen der einen
+            # Signalgruppe gebildet, damit "Alle" trotzdem etwas zum Synchronisieren hat.
+            single_signal_multi_op = (n_groups == 1 and len(plot_types) > 1)
+            sync_groups = {"Alle Operationen": list(all_axes)} if single_signal_multi_op else axes_dict
+            multi_signal_sync = any(len(axes_dict[ptype]) > 1 for ptype in plot_types)
+            show_all_sync = multi_signal_sync or single_signal_multi_op
             if show_all_sync:
                 all_sync_var = tk.BooleanVar(value=True)
 
@@ -904,16 +1046,22 @@ class AnalysePlotter:
                     for var in sync_enabled.values():
                         var.set(all_sync_var.get())
 
-                all_cb = ttk.Checkbutton(control_frame, text="Alle", variable=all_sync_var, command=_set_all_sync)
+                all_cb = ttk.Checkbutton(sync_row, text="Alle", variable=all_sync_var, command=_set_all_sync)
                 all_cb.pack(side="left", padx=5)
-            for ptype in plot_types:
-                if len(axes_dict[ptype]) > 1:
-                    var = tk.BooleanVar(value=True)
-                    sync_enabled[ptype] = var
-                    cb = ttk.Checkbutton(control_frame, text=ptype, variable=var)
-                    cb.pack(side="left", padx=5)
+            if single_signal_multi_op:
+                sync_enabled["Alle Operationen"] = all_sync_var
+            else:
+                for ptype in plot_types:
+                    if len(axes_dict[ptype]) > 1:
+                        var = tk.BooleanVar(value=True)
+                        sync_enabled[ptype] = var
+                        cb = ttk.Checkbutton(sync_row, text=ptype, variable=var)
+                        cb.pack(side="left", padx=5)
 
-            ttk.Label(control_frame, text="Cursor:", font=("Arial", 10, "bold")).pack(side="left", padx=(15, 5))
+            cursor_row = ttk.Frame(extra_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(cursor_row, "Panel.TFrame")
+            cursor_row.pack(side="top", anchor="w", padx=5, pady=(2, 5))
+            ttk.Label(cursor_row, text="Cursor:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
 
             cursor_single_var = tk.BooleanVar(value=True)
             cursor_multi_var  = tk.BooleanVar(value=False)
@@ -931,16 +1079,38 @@ class AnalysePlotter:
                     cursor_multi_var.set(True)
 
             ttk.Checkbutton(
-                control_frame, text="Einer", variable=cursor_single_var,
+                cursor_row, text="Einer", variable=cursor_single_var,
                 command=_on_cursor_single_toggle
             ).pack(side="left", padx=5)
             ttk.Checkbutton(
-                control_frame, text="Mehrere", variable=cursor_multi_var,
+                cursor_row, text="Mehrere", variable=cursor_multi_var,
                 command=_on_cursor_multi_toggle
             ).pack(side="left", padx=5)
 
+            bedienung_frame = ttk.Frame(toolbar_row, style="LegendBox.TFrame")
+            Cfg.Styles.force_apply(bedienung_frame, "LegendBox.TFrame")
+            bedienung_frame.pack(side="left", padx=(10, 5), pady=5)
+
+            bedienung_inner = ttk.Frame(bedienung_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(bedienung_inner, "Panel.TFrame")
+            bedienung_inner.pack(padx=5, pady=5)
+
+            ttk.Label(
+                bedienung_inner, text="Plot-Bedienung", font=("Arial", 10, "bold"),
+                style="Panel.TLabel"
+            ).pack(side="top", anchor="w")
+            ttk.Label(bedienung_inner, text="Linksklick: Zoom", style="Panel.TLabel").pack(side="top", anchor="w")
+            ttk.Label(
+                bedienung_inner, text="Rechtsklick halten: Verschieben", style="Panel.TLabel"
+            ).pack(side="top", anchor="w")
+
             def _is_time_axis(ax):
                 return ax in time_axes
+
+            def _push_range_history(new_range):
+                del frame._range_history[frame._range_history_index + 1:]
+                frame._range_history.append(new_range)
+                frame._range_history_index = len(frame._range_history) - 1
 
             def _on_cursor_range_selected(x0, x1, ax):
                 prev = getattr(frame, "_cursor_range", None)
@@ -948,34 +1118,174 @@ class AnalysePlotter:
                 if prev == new_range:
                     return
                 frame._cursor_range = new_range
+                _push_range_history(new_range)
                 _render()
 
             def _on_cursor_range_cleared():
                 if getattr(frame, "_cursor_range", None) is None:
                     return
                 frame._cursor_range = None
+                _push_range_history(None)
                 _render()
+
+            def _history_back():
+                fig = getattr(frame, "_current_fig", None)
+                if fig is not None and getattr(fig, "_history_can_go_back", lambda: False)():
+                    fig._history_back()
+                    return
+                if frame._range_history_index > 0:
+                    frame._range_history_index -= 1
+                    frame._cursor_range = frame._range_history[frame._range_history_index]
+                    _render()
+
+            def _history_forward():
+                fig = getattr(frame, "_current_fig", None)
+                if fig is not None and getattr(fig, "_history_can_go_forward", lambda: False)():
+                    fig._history_forward()
+                    return
+                if frame._range_history_index < len(frame._range_history) - 1:
+                    frame._range_history_index += 1
+                    frame._cursor_range = frame._range_history[frame._range_history_index]
+                    _render()
+
+            # Eigener, unabhängig scrollbarer Bereich für die Wertetabellen
+            # gepinnter Cursor ("Mehrere"-Modus) - als Tkinter-Karten statt als
+            # matplotlib-Annotation im Plot, damit auch Gruppen mit vielen
+            # Signalen (hohe Tabellen) nicht von benachbarten Subplots verdeckt
+            # werden. content_row ist ein PanedWindow mit Plot (links) und
+            # diesem Panel (rechts) - der Sash dazwischen lässt sich mit der
+            # Maus ziehen, um das Panel breiter/schmaler zu machen.
+            # scroll_container wird schon hier angelegt (leer) und weiter unten
+            # mit Scrollbars/Canvas befüllt, damit die Reihenfolge im
+            # PanedWindow (Plot links, Panel rechts) stimmt.
+            content_row = ttk.PanedWindow(frame, orient=tk.HORIZONTAL)
+            content_row.pack(side="top", fill="both", expand=True)
+
+            scroll_container = ttk.Frame(content_row)
+            content_row.add(scroll_container, weight=3)
+
+            cursor_panel_outer = ttk.Frame(content_row, style="Panel.TFrame")
+            Cfg.Styles.force_apply(cursor_panel_outer, "Panel.TFrame")
+            # Bleibt technisch immer im PanedWindow (add/forget bei ttk.PanedWindow
+            # hat sich als unzuverlässig erwiesen - die Sash-Position danach neu
+            # zu setzen, hat im echten Fenster nicht sichtbar gegriffen). Stattdessen
+            # wird das Panel über die SASH-POSITION ein-/ausgeblendet: auf 0 Breite
+            # geschoben (unsichtbar), bis der erste Cursor gesetzt wird.
+            content_row.add(cursor_panel_outer, weight=1)
+
+            def _hide_cursor_panel():
+                try:
+                    content_row.sashpos(0, content_row.winfo_width())
+                except Exception:
+                    pass
+
+            def _show_cursor_panel():
+                try:
+                    total_width = content_row.winfo_width()
+                    if total_width > 250:
+                        content_row.sashpos(0, total_width - 220)
+                except Exception:
+                    pass
+
+            # _show_cursor_panel() setzt die Sash-Position (=Breite) fest -
+            # das darf NUR beim allerersten Cursor passieren. Sonst würde jeder
+            # weitere gesetzte Cursor die vom Nutzer per Hand gezogene Breite
+            # wieder auf die Startgrösse zurücksetzen.
+            _cursor_panel_state = {"visible": False}
+
+            # Ein einmaliges after(200, ...) ist eine reine Race Condition:
+            # bis das Layout tatsächlich seine echte Grösse hat, kann es je
+            # nach Fensteraufbau (Tab noch nicht sichtbar, langsameres System,
+            # ...) länger dauern - dann liefert winfo_width() beim Timer noch
+            # den Platzhalterwert und das Panel bleibt sichtbar. Stattdessen
+            # bei JEDEM Configure (Grössenänderung) von content_row erneut
+            # ausblenden, solange noch kein Cursor gesetzt wurde - das greift
+            # zuverlässig unabhängig davon, wann das echte Layout steht.
+            def _on_content_row_configure(_event):
+                if not _cursor_panel_state["visible"]:
+                    _hide_cursor_panel()
+            content_row.bind("<Configure>", _on_content_row_configure)
+
+            def _on_cursor_panel_visibility(has_cards):
+                if has_cards and not _cursor_panel_state["visible"]:
+                    _show_cursor_panel()
+                    _cursor_panel_state["visible"] = True
+                elif not has_cards and _cursor_panel_state["visible"]:
+                    _hide_cursor_panel()
+                    _cursor_panel_state["visible"] = False
+
+            cursor_panel_heading = ttk.Frame(cursor_panel_outer, style="LegendBox.TFrame")
+            Cfg.Styles.force_apply(cursor_panel_heading, "LegendBox.TFrame")
+            cursor_panel_heading.pack(side="top", anchor="w", padx=6, pady=(6, 2))
+
+            ttk.Label(
+                cursor_panel_heading, text="Gesetzte Cursor", font=("Arial", 10, "bold"),
+                style="Panel.TLabel"
+            ).pack(padx=8, pady=3)
+
+            cursor_panel_scrollbar = ttk.Scrollbar(cursor_panel_outer, orient="vertical")
+            cursor_panel_scrollbar.pack(side="right", fill="y")
+
+            cursor_panel_h_scrollbar = ttk.Scrollbar(cursor_panel_outer, orient="horizontal")
+            cursor_panel_h_scrollbar.pack(side="bottom", fill="x")
+
+            cursor_panel_canvas = tk.Canvas(
+                cursor_panel_outer, yscrollcommand=cursor_panel_scrollbar.set,
+                xscrollcommand=cursor_panel_h_scrollbar.set,
+                highlightthickness=0, bg=Cfg.Colors.PANEL_BG,
+            )
+            cursor_panel_canvas.pack(side="left", fill="both", expand=True)
+            cursor_panel_scrollbar.configure(command=cursor_panel_canvas.yview)
+            cursor_panel_h_scrollbar.configure(command=cursor_panel_canvas.xview)
+
+            cursor_panel = ttk.Frame(cursor_panel_canvas, style="Panel.TFrame")
+            Cfg.Styles.force_apply(cursor_panel, "Panel.TFrame")
+            cursor_panel_canvas.create_window((0, 0), window=cursor_panel, anchor="nw")
+
+            def _on_cursor_panel_configure(event):
+                cursor_panel_canvas.configure(scrollregion=cursor_panel_canvas.bbox("all"))
+            cursor_panel.bind("<Configure>", _on_cursor_panel_configure)
+
+            def _on_cursor_panel_scroll(event):
+                direction = -1 if event.delta > 0 else 1
+                cursor_panel_canvas.yview_scroll(direction * 3, "units")
+            cursor_panel_canvas.bind("<MouseWheel>", _on_cursor_panel_scroll)
+            # Jede Karte (PlotManager._make_cursor_card) bindet das Mausrad
+            # zusätzlich rekursiv auf sich selbst - sonst würde Scrollen nur im
+            # Leerraum zwischen Karten funktionieren, nicht direkt über einer
+            # Karte (Kind-Widgets bekommen das Canvas-Event sonst nicht).
 
             PlotManager.add_cursor_and_zoom_logic(
                 fig,
                 all_axes,
                 signal_data,
-                axes_dict,
+                sync_groups,
                 sync_enabled,
                 range_selected_callback=_on_cursor_range_selected,
                 range_cleared_callback=_on_cursor_range_cleared,
                 selection_filter=_is_time_axis,
                 multi_cursor_var=cursor_multi_var,
+                cursor_panel=cursor_panel,
+                on_cursor_panel_visibility=_on_cursor_panel_visibility,
             )
+            frame._current_fig = fig
 
-            reset_frame = ttk.Frame(frame)
-            reset_frame.pack(side="top", fill="x", padx=5, pady=(0, 5))
+            reset_frame = ttk.Frame(toolbar_panel, style="Panel.TFrame")
+            Cfg.Styles.force_apply(reset_frame, "Panel.TFrame")
+            reset_frame.pack(side="top", padx=5, pady=(5, 2))
 
             def _reset_zoom_selection():
                 if hasattr(fig, "_reset_zoom_selection"):
                     fig._reset_zoom_selection()
 
             ttk.Button(reset_frame, text="Zurücksetzen", command=_reset_zoom_selection).pack(side="left", padx=5)
+
+            nav_frame = ttk.Frame(reset_frame, style="Panel.TFrame")
+            Cfg.Styles.force_apply(nav_frame, "Panel.TFrame")
+            nav_frame.pack(side="left", padx=5)
+
+            ttk.Button(nav_frame, text="◀", width=3, command=_history_back).pack(side="left", padx=(2, 1), pady=2)
+            ttk.Button(nav_frame, text="▶", width=3, command=_history_forward).pack(side="left", padx=(1, 2), pady=2)
 
             def _export():
                 AnalysePlotter._export_figure_as_png(
@@ -984,19 +1294,30 @@ class AnalysePlotter:
 
             ttk.Button(reset_frame, text="Export", command=_export).pack(side="left", padx=5)
 
+            zeitachse_frame.pack(side="top", padx=5, pady=(2, 5))
+
             fig.tight_layout()
-            # Rand links/rechts reservieren, damit Legende (rechts, ausserhalb)
-            # und Gruppen-Cursorboxen (links, ausserhalb) nicht abgeschnitten werden.
-            fig.subplots_adjust(left=0.16, right=0.8)
+            # Rand links reservieren, damit die Gruppen-Cursorboxen (links,
+            # ausserhalb, MULTI_ANN_X=-0.14 in plot_manager.py) nicht die
+            # Y-Achsen-Beschriftung überlappen oder abgeschnitten werden -
+            # deshalb deutlich mehr als früher (0.16 -> 0.24). bottom/hspace
+            # für die Unter-dem-Plot-Legenden werden aus der TATSÄCHLICHEN
+            # Figurhöhe zurückgerechnet (get_group_legend_margins) - eine
+            # feste Bruchzahl reicht bei EINEM Subplot (Figur nur 3 Zoll hoch)
+            # nicht, ist bei VIELEN Subplots aber unnötig knapp/verschwenderisch.
+            _legend_bottom, _legend_hspace = PlotManager.get_group_legend_margins(fig)
+            fig.subplots_adjust(left=0.24, right=0.8, hspace=_legend_hspace, bottom=_legend_bottom)
+
+            # Erst JETZT (nach dem finalen Layout) die Unter-dem-Plot-Legenden
+            # erzeugen - die Achsenposition (ax.get_position()) steht erst nach
+            # subplots_adjust fest, und die Legende wird in Figur- statt
+            # Achsen-Koordinaten platziert (siehe finalize_group_legends),
+            # damit der Abstand zur X-Achsen-Beschriftung überall gleich groß
+            # ist, egal wie hoch/niedrig der jeweilige Subplot ausfällt.
+            PlotManager.finalize_group_legends(all_axes)
 
             fig_height_px = int(fig.get_figheight() * fig.get_dpi())
             fig_width_px = int(fig.get_figwidth() * fig.get_dpi())
-
-            toolbar_frame = ttk.Frame(frame)
-            toolbar_frame.pack(side="top", fill="x")
-
-            scroll_container = ttk.Frame(frame)
-            scroll_container.pack(side="top", fill="both", expand=True)
 
             v_scrollbar = ttk.Scrollbar(scroll_container, orient="vertical")
             v_scrollbar.pack(side="right", fill="y")
@@ -1021,13 +1342,34 @@ class AnalysePlotter:
             canvas_widget.configure(height=fig_height_px, width=fig_width_px)
             canvas_widget.pack(fill="none", expand=False)
 
-            toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
-            toolbar.update()
-            toolbar.pack(side="right")
-
             def _on_configure(event):
                 scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
             inner_frame.bind("<Configure>", _on_configure)
+
+            def _on_figure_scroll(event):
+                # Über einer Achse macht PlotManager mit dem Mausrad Zoom (siehe
+                # add_cursor_and_zoom_logic) - das bleibt unangetastet. Nur wenn
+                # der Rand daneben liegt (event.inaxes ist dann None - z.B. über
+                # den Cursorboxen links oder der Legende rechts), scrollt das
+                # Mausrad stattdessen das Plot-Fenster hoch/runter, damit man
+                # nicht immer die Scrollbar manuell ziehen muss.
+                if event.inaxes is not None:
+                    return
+                direction = -1 if event.button == "up" else 1
+                scroll_canvas.yview_scroll(direction * 3, "units")
+
+            fig.canvas.mpl_connect("scroll_event", _on_figure_scroll)
+
+            def _on_blank_area_scroll(event):
+                # Der weisse Bereich neben der eingebetteten Figur (die hat eine
+                # feste Pixelgroesse) gehoert nicht mehr zu matplotlib, sondern
+                # ist einfach der Hintergrund von scroll_canvas selbst - dahin
+                # kommt _on_figure_scroll oben nie. Deshalb hier zusaetzlich ein
+                # normaler Tkinter-Mausrad-Handler direkt auf scroll_canvas.
+                direction = -1 if event.delta > 0 else 1
+                scroll_canvas.yview_scroll(direction * 3, "units")
+
+            scroll_canvas.bind("<MouseWheel>", _on_blank_area_scroll)
 
 
         _render()

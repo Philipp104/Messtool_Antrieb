@@ -10,6 +10,7 @@ und Konvertierung von Spaltennamen.
 #  IMPORTS – Standardbibliotheken
 # ============================================================
 import logging
+from collections import deque
 
 # ============================================================
 #  IMPORTS – Drittanbieter
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 #  KLASSE
 # ============================================================
-class DataValidator:
+class DatenValidator:
     """Klasse für Validierung und Verarbeitung mit DataFrame und Entry-Parametern"""
 
     def __init__(self):
@@ -51,6 +52,20 @@ class DataValidator:
         self.temp_headers = []
         self.temp_units   = []
         self.reset_active = False
+
+        # Unterdrueckt den "wurde automatisch auf X begrenzt"-Hinweis in
+        # _adjust_row_range/_adjust_col_range. Wird vom Aufrufer gesetzt, wenn der
+        # Bereich ohnehin automatisch aus der Datei berechnet wurde (z.B. "Ganze
+        # Datei verwenden") - eine Anpassung ist dort ein normaler, erwarteter
+        # Rechenschritt und kein Hinweis auf eine zu grosse manuelle Eingabe.
+        self.suppress_range_hints = False
+
+        # Optionaler Dateiname, der Hinweis-Meldungen vorangestellt wird (siehe
+        # _adjust_row_range/_adjust_col_range) - vom Mehrfachdatei-Import gesetzt
+        # (mehrfachdatei_manager.py), damit bei mehreren Dateien klar ist, auf
+        # welche Datei sich ein "wurde begrenzt"-Hinweis bezieht. Beim
+        # Einzeldatei-Weg bleibt es None (dort gibt es ohnehin nur eine Datei).
+        self.filename_context = None
 
     # --------------------------------------------------------
     #  PROPERTIES – Bereich
@@ -195,20 +210,27 @@ class DataValidator:
         """Gibt temp_df zurück wenn reset aktiv, sonst df."""
         return self.temp_df if (self.reset_active and self.temp_df is not None) else self.df
 
+    def _with_filename_context(self, msg):
+        """Stellt msg den Dateinamen voran, falls filename_context gesetzt ist
+        (Mehrfachdatei-Import - siehe __init__)."""
+        return f"{self.filename_context}\n\n{msg}" if self.filename_context else msg
+
     def _adjust_row_range(self, df_to_use):
         """Passt End-Zeile an maximalen Index an; meldet Start-Zeile außerhalb des Bereichs."""
         max_rows = df_to_use.index.max()
 
         if self._start_row is not None and self._start_row > max_rows:
             msg = Cfg.Errors.VAL_START_ROW_OUT_OF_RANGE.format(self._start_row, max_rows)
-            meldungen.showerror(Cfg.Texts.ERROR, msg)
+            meldungen.showerror(Cfg.Texts.ERROR, self._with_filename_context(msg))
             raise ValueError(msg)
 
         if self._end_row > max_rows:
             old = self._end_row
             self.end_row = max_rows
             logger.info(Cfg.Logs.VAL_RANGE_ADJUSTED.format("End-Zeile", old, max_rows))
-            meldungen.showinfo(Cfg.Texts.HINT, Cfg.Status.VAL_END_ROW_CLAMPED.format(old, max_rows))
+            if not self.suppress_range_hints:
+                msg = Cfg.Status.VAL_END_ROW_CLAMPED.format(old, max_rows)
+                meldungen.showinfo(Cfg.Texts.HINT, self._with_filename_context(msg))
 
     def _adjust_col_range(self, df_to_use, is_multiindex=False):
         """Passt End-Spalte an maximale Spaltenanzahl an."""
@@ -217,7 +239,9 @@ class DataValidator:
             old = self._end_col
             self.end_col = max_cols - 1
             logger.info(Cfg.Logs.VAL_RANGE_ADJUSTED.format("End-Spalte", old, max_cols - 1))
-            meldungen.showinfo(Cfg.Texts.HINT, Cfg.Status.VAL_END_COL_CLAMPED.format(old, max_cols - 1))
+            if not self.suppress_range_hints:
+                msg = Cfg.Status.VAL_END_COL_CLAMPED.format(old, max_cols - 1)
+                meldungen.showinfo(Cfg.Texts.HINT, self._with_filename_context(msg))
 
     # --------------------------------------------------------
     #  GUI-EINGABEN EINLESEN
@@ -382,9 +406,29 @@ class DataValidator:
             logger.info("TOP validate - temp_headers: %s", self.temp_headers)
             logger.info("TOP validate - temp_units:   %s", self.temp_units)
             if self.temp_headers and self.temp_units:
-                unit_by_header = dict(zip(self.temp_headers, self.temp_units))
-                logger.info("TOP validate - unit_by_header: %s", unit_by_header)
-                units = [unit_by_header.get(str(col), "") for col in selected_columns]
+                # Nicht direkt dict(zip(temp_headers, temp_units)) - bei zwei Spalten mit
+                # gleichem Namen (z.B. nach dem Entfernen der Einheit aus dem Spaltentitel)
+                # wuerde ein Name->Einheit-Dict auf die letzte Einheit kollabieren und
+                # beiden Spalten dieselbe (teils falsche) Einheit zuweisen. Stattdessen wird
+                # pro Name eine Warteschlange der Positionen in temp_headers gefuehrt und
+                # bei jedem Namens-Treffer in Spaltenreihenfolge abgearbeitet - so bekommt
+                # bei doppelten Namen jede Spalte ihre EIGENE, korrekte Einheit. (Direkte
+                # Positionsindizierung über _start_col geht hier NICHT: temp_headers/
+                # temp_units haben Cfg.Data.EXCLUDE_COLUMNS bereits herausgefiltert und sind
+                # dadurch kürzer/anders indiziert als df_to_use.columns, aus dem _start_col
+                # stammt.)
+                name_to_indices = {}
+                for i, h in enumerate(self.temp_headers):
+                    name_to_indices.setdefault(h, deque()).append(i)
+
+                units = []
+                for col in selected_columns:
+                    indices = name_to_indices.get(str(col))
+                    if indices:
+                        idx = indices.popleft()
+                        units.append(self.temp_units[idx] if idx < len(self.temp_units) else "")
+                    else:
+                        units.append("")
                 logger.info("TOP validate - units result: %s", units)
             else:
                 units = [''] * len(selected_columns)

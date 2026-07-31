@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # neben jeder Datei ablegen (muss vor den Projekt-Imports gesetzt werden).
 sys.pycache_prefix = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".pycache")
 
-from gui_manager import GuiManager
+from hauptfenster_manager import HauptfensterManager
 from hilfsklassen.zentrales_logging import setup_logging, log_session_start, log_session_end
 
 def _install_exception_hooks():
@@ -75,10 +75,10 @@ def main():
 
     _install_exception_hooks()
     try:
-        gui = GuiManager(get_resource_path)
+        gui = HauptfensterManager(get_resource_path)
         gui.session_id = session_id
         gui.create_gui()
-    except Exception as e:
+    except Exception:
         logger.exception("Fehler beim Starten vom GUI")
     finally:
         end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

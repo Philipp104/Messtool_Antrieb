@@ -1,9 +1,9 @@
 """
 GUI-Hilfsfunktionen
 ====================
-Allgemeine GUI-Helfer ohne Abhängigkeit auf GuiManager, damit auch
-Module ohne GuiManager-Referenz (z.B. PlotManager mit seinen statischen
-Methoden) sie nutzen können, ohne einen Import-Zyklus mit gui_manager.py
+Allgemeine GUI-Helfer ohne Abhängigkeit auf HauptfensterManager, damit auch
+Module ohne HauptfensterManager-Referenz (z.B. PlotManager mit seinen statischen
+Methoden) sie nutzen können, ohne einen Import-Zyklus mit hauptfenster_manager.py
 zu erzeugen.
 """
 

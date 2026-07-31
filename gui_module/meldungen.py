@@ -103,6 +103,15 @@ def _show(kind, title, message, parent=None):
         topmost=True,
     )
     meldung.show_toast()
+    # Ohne update_idletasks() liefert winfo_height() beim naechsten Toast (in
+    # _stack_versatz) noch die alte/unrealisierte Groesse (meist 1px) statt der
+    # tatsaechlichen Toast-Hoehe, weil Tk das Layout erst beim naechsten Idle-
+    # Durchlauf berechnet - mehrere kurz hintereinander ausgeloeste Meldungen
+    # wuerden sich dadurch ueberlappen statt sauber untereinander zu stapeln.
+    try:
+        meldung.toplevel.update_idletasks()
+    except Exception as e:
+        logger.debug("update_idletasks() für Meldung fehlgeschlagen: %s", e)
     _stack_registrieren(id(anker), meldung.toplevel)
 
 

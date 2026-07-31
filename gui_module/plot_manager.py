@@ -24,6 +24,8 @@ import ttkbootstrap as tb
 from matplotlib import gridspec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.transforms import blended_transform_factory
+from matplotlib.colors import to_hex as _mpl_color_to_hex
+from matplotlib.colors import to_rgb as _mpl_color_to_rgb
 
 # ============================================================
 #  IMPORTS – Eigene Klassen
@@ -104,8 +106,36 @@ class PlotManager:
         return start - margin, end + margin
 
     @staticmethod
-    def _configure_ax(ax, ylabel, xlabel=None, title=None, show_legend=True):
-        """Konfiguriert einen Subplot einheitlich."""
+    def _estimate_legend_ncol(ax, labels):
+        """Schätzt, wie viele Legenden-Einträge nebeneinander in die Breite
+        des Plots passen (für legend_below), damit sie bei Bedarf in eine
+        neue Zeile darunter umbrechen. Grobe Schätzung anhand der
+        Beschriftungslänge - es gibt keine exakte Breitenmessung ohne
+        Renderer, siehe auch ähnliche Schätzungen bei den Cursor-Boxen."""
+        if not labels:
+            return 1
+        fig = ax.get_figure()
+        avg_len = sum(len(l) for l in labels) / len(labels)
+        fontsize_pt = Cfg.Fonts.Plots.LEGEND
+        # ~0.55 * Schriftgröße pro Zeichen (typisch für proportionale
+        # Schriften) + Platz für Linien-Symbol und Innenabstand (~4 Zeichen).
+        # matplotlib bricht bei zu knapper Schätzung NICHT selbst um (die
+        # angegebene Spaltenzahl wird stur gerendert und läuft dann über den
+        # Rand hinaus) - deshalb bewusst mit Sicherheitsfaktor lieber eine
+        # Zeile zu viel als eine abgeschnittene Legende.
+        SAFETY_FACTOR = 1.6
+        entry_width_in = (avg_len * 0.55 + 4) * fontsize_pt / 72 * SAFETY_FACTOR
+        ncol = max(1, int(fig.get_figwidth() / entry_width_in))
+        return min(ncol, len(labels))
+
+    @staticmethod
+    def _configure_ax(ax, ylabel, xlabel=None, title=None, show_legend=True, legend_below=False):
+        """Konfiguriert einen Subplot einheitlich.
+
+        legend_below: Legende unter dem Plot statt rechts daneben, Einträge
+        nebeneinander mit automatischem Zeilenumbruch (siehe
+        _estimate_legend_ncol), statt einer Spalte rechts.
+        """
         ax.set_ylabel(ylabel, fontsize=Cfg.Fonts.Plots.AXIS_LABELS)
         if xlabel:
             ax.set_xlabel(xlabel, fontsize=Cfg.Fonts.Plots.AXIS_LABELS)
@@ -118,10 +148,62 @@ class PlotManager:
             color=Cfg.Colors.GRID_COLOR
         )
         if show_legend:
+            if legend_below:
+                # Wird HIER absichtlich noch nicht erzeugt: eine Achsen-Fraktion
+                # (0-1 relativ zu DIESER Achse) ist nicht auf einen konstanten
+                # Achsen-zu-Achse-Abstand übertragbar (steht ausserdem erst
+                # nach fig.subplots_adjust(...) endgültig fest, da viele
+                # gestapelte Subplots stark unterschiedliche Höhen haben können).
+                # Siehe PlotManager.finalize_group_legends: die wird NACH dem
+                # finalen Layout aufgerufen und positioniert in absoluten
+                # Zoll-Abständen (figur-transform), damit der Abstand zur
+                # X-Achsen-Beschriftung überall gleich groß ist.
+                pass
+            else:
+                ax.legend(
+                    loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0,
+                    fontsize=Cfg.Fonts.Plots.LEGEND
+                )
+
+    @staticmethod
+    def finalize_group_legends(axes, clearance_in=0.55, max_legend_height_in=0.9):
+        """Erzeugt für Gruppen-Plots (legend_below=True in _configure_ax) die
+        Unter-dem-Plot-Legende, in FIGUR-Koordinaten (nicht Achsen-Fraktion)
+        positioniert - dadurch hat jede Legende denselben absoluten Abstand
+        zur X-Achsen-Beschriftung, unabhängig von der Höhe des jeweiligen
+        Subplots. Muss NACH fig.subplots_adjust(...) aufgerufen werden (siehe
+        get_group_legend_margins für die dazu passenden bottom/hspace-Werte),
+        weil ax.get_position() erst dann feststeht."""
+        for ax in axes:
+            handles, labels = ax.get_legend_handles_labels()
+            if not labels:
+                continue
+            fig = ax.get_figure()
+            pos = ax.get_position()
+            x_center = (pos.x0 + pos.x1) / 2
+            y_top = pos.y0 - clearance_in / fig.get_figheight()
             ax.legend(
-                loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0,
-                fontsize=Cfg.Fonts.Plots.LEGEND
+                handles, labels,
+                loc="upper center", bbox_to_anchor=(x_center, y_top),
+                bbox_transform=fig.transFigure,
+                ncol=PlotManager._estimate_legend_ncol(ax, labels),
+                fontsize=Cfg.Fonts.Plots.LEGEND,
             )
+
+    @staticmethod
+    def get_group_legend_margins(fig, clearance_in=0.55, max_legend_height_in=0.9):
+        """Berechnet bottom/hspace für fig.subplots_adjust(...) so, dass IMMER
+        mindestens (clearance_in + max_legend_height_in) Zoll absoluter Platz
+        für die Unter-dem-Plot-Legende reserviert sind - unabhängig davon, wie
+        wenige/viele Subplots die Figur hat. Eine feste Bruchzahl (z.B.
+        bottom=0.18) reicht bei EINEM Subplot (Figurhöhe nur 3 Zoll) nicht,
+        ist bei VIELEN Subplots (Figur wächst proportional mit) aber unnötig
+        knapp bemessen bzw. verschwenderisch - deshalb hier aus der
+        tatsächlichen Figurhöhe zurückgerechnet."""
+        reserve_in = clearance_in + max_legend_height_in
+        bottom = min(0.5, reserve_in / fig.get_figheight())
+        hspace = min(2.5, reserve_in / 1.6)
+        return bottom, hspace
 
     @staticmethod
     def _hide_xticklabels(axes_list):
@@ -158,7 +240,9 @@ class PlotManager:
         range_selected_callback=None,
         range_cleared_callback=None,
         selection_filter=None,
-        multi_cursor_var=None
+        multi_cursor_var=None,
+        cursor_panel=None,
+        on_cursor_panel_visibility=None,
     ):
         """Fügt interaktiven Cursor, Selektion und Zoom zu einem Plot hinzu.
 
@@ -166,21 +250,225 @@ class PlotManager:
         setzt ein Klick einen bleibenden Cursor (statt der Zoom-Selektion)
         an der geklickten Stelle - synchronisiert über dieselben Achsgruppen
         wie der Hover-Cursor.
+
+        cursor_panel: optionales ttk.Frame (Tkinter, ausserhalb der Figure).
+        Bei Gruppen-Plots (mehrere überlagerte Signale in einer Achse) werden
+        die Wertetabellen gepinnter Cursor ("Mehrere"-Modus) hier als eigene
+        Karten-Widgets angezeigt statt als matplotlib-Annotation im Plot -
+        das hat unabhängig von der Subplot-Höhe beliebig viel Platz. Ohne
+        cursor_panel bleibt nur der dicke Strich + Nummer im Plot sichtbar,
+        ohne Wertetabelle. Der normale Hover-Fadenkreuz (Boxen links, oben)
+        ist davon unberührt.
+
+        on_cursor_panel_visibility: optionaler Callback(bool) - wird mit True
+        aufgerufen, sobald die erste Karte im cursor_panel entsteht, und mit
+        False, sobald keine Karte mehr da ist. Der Aufrufer kann damit das
+        Panel selbst ein-/ausblenden (z.B. aus dem PanedWindow entfernen),
+        damit es nicht leer sichtbar bleibt, solange kein Cursor gesetzt ist.
         """
         vlines         = {}
         hlines         = {}
         annotations    = {}
-        ann_yfracs     = {}
         selection_start   = {}
         selection_start_y = {}
         selection_lines   = {}
         selection_markers = {}
+        # Bei Gruppen-Plots bekommt die Zwei-Klick-Bereichsauswahl ("Einer")
+        # dieselbe Optik wie ein gepinnter Cursor ("Mehrere"): dicker Strich +
+        # eingekreiste Nummer im Plot, Wertetabelle als Karte im cursor_panel -
+        # statt der einfachen "Start/End x=...y=..."-Box im Plot. Das Verhalten
+        # (zweiter Klick zoomt rein) bleibt unverändert.
+        selection_group_numbers = {}  # ax -> (start_number_ann, end_number_ann)
+        selection_group_cards   = {}  # ax -> {"start": card_widget, "end": card_widget}
         original_limits   = {}
         hover_state    = {"ax": None, "x": None, "y": None, "axes": set()}
-        MULTI_ANN_X         = -0.02  # feste X-Position (Achsen-Fraktion) für Gruppen-Cursorboxen, links AUSSERHALB des Plots
-        pinned_cursors      = {ax: [] for ax in axes}
+
+        def _left_ann_x(ax):
+            """X-Position (Achsen-Fraktion) für die linken Gruppen-Cursorboxen -
+            so nah wie möglich am Plot, aber ohne die Y-Achsen-Ticklabels/
+            -Beschriftung zu schneiden. Wird per Renderer aus der TATSÄCHLICH
+            gerenderten Breite der Y-Achsen-Beschriftung berechnet (die hängt
+            von den Zahlenwerten/vom Achsentitel ab - eine feste Achsen-
+            Fraktion ist mal zu knapp, mal unnötig weit weg)."""
+            fig = ax.get_figure()
+            renderer = getattr(fig.canvas, "get_renderer", lambda: None)()
+            if renderer is None:
+                return -0.14  # Fallback, bevor die Figur gezeichnet ist
+            try:
+                ax_bbox = ax.get_window_extent(renderer=renderer)
+                y_bbox = ax.yaxis.get_tightbbox(renderer)
+                if y_bbox is None or ax_bbox.width <= 0:
+                    return -0.14
+                overhang_px = max(0.0, ax_bbox.x0 - y_bbox.x0)
+                value = -(overhang_px + 8) / ax_bbox.width  # +8px Sicherheitsabstand
+                return min(value, -0.03)  # nie näher als -0.03, auch bei sehr schmaler Y-Beschriftung
+            except Exception:
+                return -0.14
+
+        def _group_box_yfracs(ax, n):
+            """Y-Positionen (Achsen-Fraktion) für n gestapelte Hover-
+            Cursorboxen. Wird bei jedem Hover live neu berechnet (nicht beim
+            Aufbau), weil dafür die TATSÄCHLICHE, endgültige Achsenhöhe
+            (ax.get_position(), erst nach fig.subplots_adjust(...) korrekt)
+            gebraucht wird - eine feste Achsen-Fraktion reicht bei kurzen/
+            komprimierten Subplots nicht, die Boxen überlappen sich dann."""
+            fig = ax.get_figure()
+            try:
+                ax_height_in = ax.get_position().height * fig.get_figheight()
+            except Exception:
+                ax_height_in = 2.0
+            row_height_in = 0.30  # ~2 Zeilen kleine Schrift + Puffer
+            step = row_height_in / ax_height_in if ax_height_in > 0.05 else 0.3
+            step = min(step, 0.30)
+            return [0.97 - i * step for i in range(n)]
+
+        def _tint_color(color, amount=0.18):
+            """Blendet eine Farbe leicht mit Weiss (amount=Anteil der Farbe) -
+            für einen dezenten Hintergrund-Tint der aktiven Hover-Cursorbox."""
+            r, g, b = _mpl_color_to_rgb(color)
+            return (1 - amount) + amount * r, (1 - amount) + amount * g, (1 - amount) + amount * b
+
+        def _circled_number(n):
+            # Klartext-Ziffer statt Unicode-Kreiszeichen (①②...) - das
+            # verlässt sich auf Font-Unterstützung, die nicht garantiert ist.
+            # Der Kreis kommt stattdessen von der 'circle'-Bbox der Annotation.
+            return str(n)
+
+        def _group_table_text(rows):
+            """rows: [(label, x, y), ...] - baut eine feste Tabelle 'x | y' mit
+            den Signalnamen links (Monospace-Schrift für Spaltenausrichtung)."""
+            label_w = max([len(r[0]) for r in rows] + [5])
+            lines = [f"{'':<{label_w}} {'x':>9} {'y':>9}"]
+            for label, xv, yv in rows:
+                lines.append(f"{label:<{label_w}} {xv:>9.3f} {yv:>9.3f}")
+            return "\n".join(lines)
+
+        def _make_cursor_card(number, color, title, rows):
+            """Baut eine kleine Karte (Tkinter, nicht matplotlib) für einen
+            gepinnten Gruppen-Cursor im cursor_panel - unabhängig von der
+            Subplot-Höhe, beliebig viele Karten möglich (mit eigener
+            Scrollbar im Panel)."""
+            color = _mpl_color_to_hex(color)  # matplotlib liefert RGB-Floats, Tk braucht Hex/Namen
+            card = tk.Frame(cursor_panel, highlightbackground=color,
+                             highlightcolor=color, highlightthickness=2, bd=0,
+                             bg=Cfg.Colors.ANNOTATION_BG)
+            header_row = tk.Frame(card, bg=Cfg.Colors.ANNOTATION_BG)
+            header_row.pack(fill="x", padx=6, pady=(4, 0))
+
+            # Eingekreiste Nummer wie im Plot (Canvas mit Oval, da Tkinter kein
+            # rundes Label kennt), statt der Zahl als reiner Text davor. Grösse
+            # wächst mit der Ziffernzahl, sonst schneidet der Kreis ab "10" in
+            # die Zahl.
+            _digits = len(str(number))
+            _badge_size = 20 + max(0, _digits - 1) * 7
+            badge = tk.Canvas(header_row, width=_badge_size, height=_badge_size,
+                               highlightthickness=0, bg=Cfg.Colors.ANNOTATION_BG)
+            badge.create_oval(2, 2, _badge_size - 2, _badge_size - 2,
+                               outline=color, width=2, fill=Cfg.Colors.ANNOTATION_BG)
+            badge.create_text(_badge_size / 2, _badge_size / 2, text=str(number),
+                               fill=color,
+                               font=(Cfg.Fonts.FAMILY, Cfg.Fonts.Plots.LEGEND, "bold"))
+            badge.pack(side="left", padx=(0, 6))
+
+            header = tk.Label(
+                header_row, text=title, fg=color,
+                bg=Cfg.Colors.ANNOTATION_BG,
+                font=(Cfg.Fonts.FAMILY, Cfg.Fonts.Plots.LEGEND, "bold"), anchor="w",
+            )
+            header.pack(side="left", fill="x", expand=True)
+
+            table_text = _group_table_text(rows)
+            # Breite an die tatsächlich längste Zeile anpassen (+2 Puffer) -
+            # eine feste Breite (z.B. 30) ist bei langen Signalnamen zu schmal
+            # und bricht Zahlen mitten im Wort um ("795." + "0" in Zeile darunter).
+            _width = max((len(line) for line in table_text.split("\n")), default=20) + 2
+            body = tk.Text(
+                card, height=len(rows) + 1, width=_width, font=("Consolas", 9),
+                fg=color, bg=Cfg.Colors.ANNOTATION_BG, relief="flat", bd=0,
+                highlightthickness=0, wrap="none",
+            )
+            body.insert("1.0", table_text)
+            body.configure(state="disabled")
+            body.pack(fill="x", padx=6, pady=(0, 6))
+            card.pack(side="top", fill="x", padx=4, pady=4)
+
+            # Mausrad-Scrollen des umgebenden Canvas (cursor_panel.master) auch
+            # direkt über der Karte ermöglichen - ein Binding nur auf dem Canvas
+            # feuert nicht, wenn die Maus über einem Kind-Widget (Karte/Label/
+            # Text) steht.
+            def _on_card_wheel(event):
+                direction = -1 if event.delta > 0 else 1
+                cursor_panel.master.yview_scroll(direction * 3, "units")
+
+            for _w in (card, header_row, badge, header, body):
+                _w.bind("<MouseWheel>", _on_card_wheel)
+
+            return card
+
+        def _notify_cursor_panel_visibility():
+            if on_cursor_panel_visibility is None or cursor_panel is None:
+                return
+            has_cards = len(cursor_panel.winfo_children()) > 0
+            on_cursor_panel_visibility(has_cards)
+
+        def _rebuild_cursor_panel(entries):
+            """entries: [(number, color, title, ax, x_snap), ...] in Reihenfolge.
+            Baut das cursor_panel komplett neu auf (einfacher und robuster als
+            gezielt einzelne Karten zu verschieben/löschen)."""
+            if cursor_panel is None:
+                return
+            for child in cursor_panel.winfo_children():
+                child.destroy()
+            selection_group_cards.clear()  # ihre Karten wurden gerade mit zerstört
+            for number, color, title, ax_b, x_snap in entries:
+                rows = _group_rows_at(ax_b, x_snap)
+                _make_cursor_card(number, color, title, rows)
+            _notify_cursor_panel_visibility()
+
+        def _update_selection_card(ax, kind, number, color, x_snap):
+            """Legt/aktualisiert EINE Karte im cursor_panel für die Start- oder
+            End-Markierung der Zwei-Klick-Bereichsauswahl (nur Gruppen-Plots) -
+            ohne die restlichen Karten (gepinnte Cursor) anzufassen."""
+            if cursor_panel is None:
+                return
+            entry = selection_group_cards.setdefault(ax, {})
+            old = entry.get(kind)
+            if old is not None:
+                try:
+                    old.destroy()
+                except tk.TclError:
+                    pass
+            rows = _group_rows_at(ax, x_snap)
+            title = f"{'Start' if kind == 'start' else 'Ende'} - {ax.get_title()}"
+            entry[kind] = _make_cursor_card(number, color, title, rows)
+            _notify_cursor_panel_visibility()
+
+        def _clear_selection_cards(ax, kind=None):
+            entry = selection_group_cards.get(ax)
+            if not entry:
+                return
+            for k in ([kind] if kind else list(entry.keys())):
+                card = entry.pop(k, None)
+                if card is not None:
+                    try:
+                        card.destroy()
+                    except tk.TclError:
+                        pass
+            if not entry:
+                selection_group_cards.pop(ax, None)
+            _notify_cursor_panel_visibility()
+
+        # Bleibende ("gepinnte") Cursor im "Mehrere"-Modus: eine Liste von
+        # "Batches" (ein Klick = ein Batch, ggf. auf mehrere synchronisierte
+        # Achsen verteilt), damit Vor/Zurück sie einzeln ein-/ausblenden kann.
+        pinned_batches      = []
+        pinned_state        = {"visible": 0}
         pinned_color_cycle  = plt.cm.tab10.colors
-        pinned_click_state  = {"count": 0}
+        # Pannen mit gedrückter rechter Maustaste (Zusatzoption neben Fadenkreuz/Auswahl)
+        pan_state           = {"ax": None, "x0_px": None, "y0_px": None, "limits": None}
+        # Vor/Zurück-Navigation durch die Ansichts-Historie (ersetzt die
+        # entsprechenden Pfeile aus der matplotlib-Toolbar).
+        view_history        = {"stack": [], "index": -1}
 
         for ax in axes:
             saved_xlim = ax.get_xlim()
@@ -213,21 +501,19 @@ class PlotManager:
                 # Feste Position oben links in Achsen-Fraktion (folgt NICHT dem
                 # Cursor auf der X-Achse), damit die Boxen bei Gruppensignalen
                 # nicht Teile des Signals oder die Legende (oben rechts) verdecken.
-                _n        = len(_series_init)
-                _step     = min(0.18, 0.95 / max(_n, 1))
+                # Die tatsächliche Y-Position wird erst live beim Hover berechnet
+                # (_group_box_yfracs) - hier nur Platzhalter, da die endgültige
+                # Achsenhöhe erst nach fig.subplots_adjust(...) feststeht.
                 _ann_list = []
-                _yfracs   = []
                 for _i, _s in enumerate(_series_init):
                     _lbl   = _s[2] if len(_s) >= 3 else None
                     _col   = _line_colors.get(_lbl, Cfg.Colors.ANNOTATION_FG)
-                    _yfrac = 0.97 - _i * _step
-                    _yfracs.append(_yfrac)
                     _ann   = ax.annotate(
                         '',
-                        xy=(MULTI_ANN_X, _yfrac), xycoords=ax.transAxes,
+                        xy=(-0.14, 0.97), xycoords=ax.transAxes,
                         xytext=(0, 0), textcoords='offset points',
                         ha='right', va='top',
-                        fontsize=Cfg.Fonts.Plots.LEGEND,
+                        fontsize=Cfg.Fonts.Plots.LEGEND - 2,
                         color=_col,
                         bbox=dict(boxstyle='round', facecolor=Cfg.Colors.ANNOTATION_BG,
                                   edgecolor=_col, alpha=Cfg.Colors.ANNOTATION_BOX_ALPHA),
@@ -237,7 +523,6 @@ class PlotManager:
                     _ann.set_clip_on(False)
                     _ann_list.append(_ann)
                 annotations[ax] = _ann_list
-                ann_yfracs[ax]  = _yfracs
             else:
                 annotations[ax] = [ax.annotate(
                     '', xy=(0, 0), xytext=(8, 8), textcoords='offset points',
@@ -247,22 +532,47 @@ class PlotManager:
                               alpha=Cfg.Colors.ANNOTATION_BOX_ALPHA),
                     visible=False
                 )]
+            # Bei Gruppen-Plots dicker (wie der gepinnte Cursor bei "Mehrere"),
+            # damit Start/Ende der Zwei-Klick-Auswahl gleich aussehen.
+            _selection_linewidth = Cfg.Colors.SELECTION_LINEWIDTH * (2.5 if _is_multi else 1.0)
             selection_lines[ax] = (
                 ax.axvline(
                     x=0,
                     color=Cfg.Colors.CURSOR_SECONDARY_COLOR,
                     linestyle=Cfg.Colors.SELECTION_LINESTYLE,
-                    linewidth=Cfg.Colors.SELECTION_LINEWIDTH,
+                    linewidth=_selection_linewidth,
                     visible=False
                 ),
                 ax.axvline(
                     x=0,
                     color=Cfg.Colors.CURSOR_SECONDARY_COLOR,
                     linestyle=Cfg.Colors.SELECTION_LINESTYLE,
-                    linewidth=Cfg.Colors.SELECTION_LINEWIDTH,
+                    linewidth=_selection_linewidth,
                     visible=False
                 ),
             )
+            if _is_multi:
+                _start_num = ax.annotate(
+                    '', xy=(0, 1.0), xytext=(0, 4), textcoords='offset points',
+                    xycoords=blended_transform_factory(ax.transData, ax.transAxes),
+                    ha='center', va='bottom', fontsize=Cfg.Fonts.Plots.LEGEND + 1,
+                    color=Cfg.Colors.CURSOR_SECONDARY_COLOR, fontweight='bold',
+                    bbox=dict(boxstyle='circle', facecolor=Cfg.Colors.ANNOTATION_BG,
+                              edgecolor=Cfg.Colors.CURSOR_SECONDARY_COLOR, alpha=0.9,
+                              pad=0.15),
+                    visible=False, annotation_clip=False, zorder=7,
+                )
+                _end_num = ax.annotate(
+                    '', xy=(0, 1.0), xytext=(0, 4), textcoords='offset points',
+                    xycoords=blended_transform_factory(ax.transData, ax.transAxes),
+                    ha='center', va='bottom', fontsize=Cfg.Fonts.Plots.LEGEND + 1,
+                    color=Cfg.Colors.CURSOR_PRIMARY_COLOR, fontweight='bold',
+                    bbox=dict(boxstyle='circle', facecolor=Cfg.Colors.ANNOTATION_BG,
+                              edgecolor=Cfg.Colors.CURSOR_PRIMARY_COLOR, alpha=0.9,
+                              pad=0.15),
+                    visible=False, annotation_clip=False, zorder=7,
+                )
+                selection_group_numbers[ax] = (_start_num, _end_num)
             _ann_start = ax.annotate(
                 '', xy=(0, 0), xytext=(6, 6), textcoords='offset points',
                 ha='left', va='bottom', fontsize=Cfg.Fonts.Plots.LEGEND,
@@ -304,6 +614,17 @@ class PlotManager:
             if data is None:
                 return []
             return data if isinstance(data, list) else [data]
+
+        def _group_rows_at(ax, x_target):
+            """Liefert [(label, x, y), ...] für jedes Signal in ax am jeweils
+            nächsten Datenpunkt zu x_target - für die Gruppen-Wertetabelle."""
+            rows = []
+            for series in _get_series_list(ax):
+                _xd, _yd = series[:2]
+                _lbl = series[2] if len(series) >= 3 else ""
+                _idx = int(np.argmin(np.abs(np.array(_xd) - x_target)))
+                rows.append((_lbl, float(np.array(_xd)[_idx]), float(np.array(_yd)[_idx])))
+            return rows
 
         def _find_best_snap(ax, event):
             series_list = _get_series_list(ax)
@@ -361,6 +682,68 @@ class PlotManager:
                         return set(group_axes) if sync_on else {ax}
             return {ax}
 
+        def _view_snapshot():
+            return {
+                "axes":         {a: (a.get_xlim(), a.get_ylim()) for a in axes},
+                "cursor_count": pinned_state["visible"],
+            }
+
+        def _set_pinned_visible_count(n):
+            """Blendet gepinnte Cursor-Batches ein/aus, bis genau n Batches
+            (von vorne gezählt) sichtbar sind - für Vor/Zurück im 'Mehrere'-
+            Cursor-Modus."""
+            n = max(0, min(n, len(pinned_batches)))
+            current = pinned_state["visible"]
+            if n < current:
+                for batch in pinned_batches[n:current]:
+                    for _ax, vline, ann, group_info in batch:
+                        vline.set_visible(False)
+                        if ann is not None:
+                            ann.set_visible(False)
+                        if group_info is not None:
+                            group_info["number_ann"].set_visible(False)
+            elif n > current:
+                for batch in pinned_batches[current:n]:
+                    for _ax, vline, ann, group_info in batch:
+                        vline.set_visible(True)
+                        if ann is not None:
+                            ann.set_visible(True)
+                        if group_info is not None:
+                            group_info["number_ann"].set_visible(True)
+            pinned_state["visible"] = n
+            _renumber_pinned_cursors()
+
+        def _restore_view_snapshot(snap):
+            for a, (xlim, ylim) in snap["axes"].items():
+                a.set_xlim(xlim)
+                a.set_ylim(ylim)
+            _set_pinned_visible_count(snap["cursor_count"])
+            fig.canvas.draw_idle()
+
+        def _push_history():
+            """Merkt den aktuellen Zoom/Pan/Cursor-Zustand in der Vor/Zurück-
+            Historie. Wird nach jeder abgeschlossenen Ansichtsänderung
+            aufgerufen (Scroll-Zoom, Bereichsauswahl, Pan-Ende, gepinnter
+            Cursor gesetzt, Zurücksetzen)."""
+            snap = _view_snapshot()
+            stack = view_history["stack"]
+            idx   = view_history["index"]
+            if idx >= 0 and stack[idx] == snap:
+                return
+            del stack[idx + 1:]
+            stack.append(snap)
+            view_history["index"] = len(stack) - 1
+
+        def _history_back():
+            if view_history["index"] > 0:
+                view_history["index"] -= 1
+                _restore_view_snapshot(view_history["stack"][view_history["index"]])
+
+        def _history_forward():
+            if view_history["index"] < len(view_history["stack"]) - 1:
+                view_history["index"] += 1
+                _restore_view_snapshot(view_history["stack"][view_history["index"]])
+
         def _apply_cursor_to_axis(ax, x_target):
             """Zeigt den Cursor (Fadenkreuz + Annotation) in ax am nächsten
             Datenpunkt zu x_target an."""
@@ -382,14 +765,15 @@ class PlotManager:
 
             ann_list = annotations[ax]
             if len(series_list) > 1:
-                _yf = ann_yfracs.get(ax, [])
+                _yf = _group_box_yfracs(ax, len(ann_list))
+                _left_x = _left_ann_x(ax)
                 for series, ann, _yfrac in zip(series_list, ann_list, _yf):
                     _xd, _yd = series[:2]
                     _lbl     = series[2] if len(series) >= 3 else ""
                     _idx     = int(np.argmin(np.abs(np.array(_xd) - x_snap)))
                     _yv      = float(np.array(_yd)[_idx])
                     ann.set_text(f"{_lbl}\nx={x_snap:.3f}  y={_yv:.3f}")
-                    ann.xy = (MULTI_ANN_X, _yfrac)
+                    ann.xy = (_left_x, _yfrac)
                     ann.set_visible(True)
             else:
                 ann = ann_list[0]
@@ -406,32 +790,57 @@ class PlotManager:
         def _next_pinned_color():
             """Jeweils zwei aufeinanderfolgende Klicks (=Cursor-Paare) teilen sich
             dieselbe Farbe, danach wechselt die Farbe."""
-            pair_idx = pinned_click_state["count"] // 2
-            color    = pinned_color_cycle[pair_idx % len(pinned_color_cycle)]
-            pinned_click_state["count"] += 1
-            return color
+            pair_idx = len(pinned_batches) // 2
+            return pinned_color_cycle[pair_idx % len(pinned_color_cycle)]
+
+        def _pinned_count_on_axis(ax):
+            return sum(1 for batch in pinned_batches for (a, _v, _a2, _a3) in batch if a is ax)
 
         def _place_pinned_cursor(ax, x_target, color):
             """Setzt einen bleibenden Cursor (Linie + Wert-Label) in ax am
-            nächsten Datenpunkt zu x_target."""
+            nächsten Datenpunkt zu x_target. Bei Gruppen-Plots (mehrere
+            überlagerte Signale in einer Achse) wird der Strich dick +
+            nummeriert (kleiner Kreis im Plot), die Wertetabelle selbst
+            entsteht als Tkinter-Karte im cursor_panel (siehe
+            _renumber_pinned_cursors/_rebuild_cursor_panel) - im Plot selbst
+            ist dafür kein Platz, sobald eine Gruppe viele Signale hat. Gibt
+            (vline, ann, group_info) zurück (ann und group_info sind je nach
+            Fall der jeweils andere None), oder None wenn ax keine Daten hat."""
             series_list = _get_series_list(ax)
             if not series_list:
-                return
-            xdata0, ydata0 = series_list[0][:2]
-            x_arr0 = np.array(xdata0)
+                return None
+            x_arr0 = np.array(series_list[0][0])
             if len(x_arr0) == 0:
-                return
-            idx0   = int(np.argmin(np.abs(x_arr0 - x_target)))
-            x_snap = x_arr0[idx0]
-            y_snap = np.array(ydata0)[idx0]
+                return None
+            idx0     = int(np.argmin(np.abs(x_arr0 - x_target)))
+            x_snap   = x_arr0[idx0]
+            is_group = len(series_list) > 1
 
             vline = ax.axvline(
                 x=x_snap, color=color,
                 linestyle=Cfg.Colors.CURSOR_LINESTYLE,
-                linewidth=Cfg.Colors.CURSOR_LINEWIDTH,
+                linewidth=Cfg.Colors.CURSOR_LINEWIDTH * (2.5 if is_group else 1.0),
                 alpha=Cfg.Colors.CURSOR_ALPHA,
             )
-            y_frac = 0.97 - (len(pinned_cursors[ax]) % 6) * 0.08
+
+            if is_group:
+                # Knapp OBERHALB des oberen Achsenrands, mit kleinem Abstand
+                # zur Linie darunter (xytext=offset points, direkt über der
+                # Linie zentriert statt die Linie zu berühren/durchzuschneiden).
+                number_ann = ax.annotate(
+                    '', xy=(x_snap, 1.0), xytext=(0, 4), textcoords='offset points',
+                    xycoords=blended_transform_factory(ax.transData, ax.transAxes),
+                    ha='center', va='bottom', fontsize=Cfg.Fonts.Plots.LEGEND + 1,
+                    color=color, fontweight='bold',
+                    bbox=dict(boxstyle='circle', facecolor=Cfg.Colors.ANNOTATION_BG,
+                              edgecolor=color, alpha=0.9, pad=0.15),
+                    annotation_clip=False, zorder=7,
+                )
+                group_info = {"number_ann": number_ann, "color": color, "title": ax.get_title()}
+                return vline, None, group_info
+
+            y_snap = np.array(series_list[0][1])[idx0]
+            y_frac = 0.97 - (_pinned_count_on_axis(ax) % 6) * 0.08
             blend  = blended_transform_factory(ax.transData, ax.transAxes)
             ann = ax.annotate(
                 f"x={x_snap:.3f}\ny={y_snap:.3f}",
@@ -443,19 +852,50 @@ class PlotManager:
                           edgecolor=color, alpha=Cfg.Colors.ANNOTATION_BOX_ALPHA),
                 annotation_clip=False,
             )
-            pinned_cursors[ax].append((vline, ann))
+            return vline, ann, None
 
-        def _clear_pinned_cursors():
-            for ax, entries in pinned_cursors.items():
-                for vline, ann in entries:
-                    vline.remove()
-                    ann.remove()
-                pinned_cursors[ax] = []
-            pinned_click_state["count"] = 0
+        def _renumber_pinned_cursors():
+            """Nummeriert die sichtbaren gepinnten Gruppen-Cursor pro Achse neu
+            (1,2,3,...), aktualisiert die Nummer-Kreise im Plot und baut das
+            cursor_panel (Tkinter, unabhängig von der Subplot-Höhe) neu auf.
+            Wird nach jeder Änderung der sichtbaren Cursor aufgerufen (neuer
+            Klick, Vor/Zurück, Zurücksetzen)."""
+            per_axis_index = {}
+            panel_entries = []
+            for batch_idx, batch in enumerate(pinned_batches):
+                visible = batch_idx < pinned_state["visible"]
+                for _ax_b, vline, _ann, group_info in batch:
+                    if group_info is None:
+                        continue  # kein Gruppen-Plot - normale Box, keine Nummer/Karte
+                    number_ann = group_info["number_ann"]
+                    if not visible:
+                        number_ann.set_visible(False)
+                        continue
+                    i = per_axis_index.get(_ax_b, 0)
+                    per_axis_index[_ax_b] = i + 1
+                    number_ann.set_text(_circled_number(i + 1))
+                    number_ann.set_visible(True)
+                    x_snap = vline.get_xdata()[0]
+                    panel_entries.append((i + 1, group_info["color"], group_info["title"], _ax_b, x_snap))
+            _rebuild_cursor_panel(panel_entries)
 
         # --- Event Handler ---
 
         def on_move(event):
+            if pan_state["ax"] is not None:
+                if event.x is None or event.y is None:
+                    return
+                for a, (xlim0, ylim0) in pan_state["limits"].items():
+                    inv            = a.transData.inverted()
+                    x0_data, y0_data = inv.transform((pan_state["x0_px"], pan_state["y0_px"]))
+                    x1_data, y1_data = inv.transform((event.x, event.y))
+                    dx_data = x0_data - x1_data
+                    dy_data = y0_data - y1_data
+                    a.set_xlim(xlim0[0] + dx_data, xlim0[1] + dx_data)
+                    a.set_ylim(ylim0[0] + dy_data, ylim0[1] + dy_data)
+                fig.canvas.draw_idle()
+                return
+
             if event.inaxes is None or event.xdata is None:
                 return
             ax   = event.inaxes
@@ -489,7 +929,8 @@ class PlotManager:
             series_list = _get_series_list(ax)
             ann_list    = annotations[ax]
             if len(series_list) > 1:
-                _yf = ann_yfracs.get(ax, [])
+                _yf = _group_box_yfracs(ax, len(ann_list))
+                _left_x = _left_ann_x(ax)
                 for series, ann, _yfrac in zip(series_list, ann_list, _yf):
                     _xd, _yd   = series[:2]
                     _lbl       = series[2] if len(series) >= 3 else ""
@@ -497,13 +938,18 @@ class PlotManager:
                     _yv        = float(np.array(_yd)[_idx])
                     _is_active = bool(best["label"]) and _lbl == best["label"]
                     ann.set_text(f"{_lbl}\nx={x_snap:.3f}  y={_yv:.3f}")
-                    ann.xy = (MULTI_ANN_X, _yfrac)
+                    ann.xy = (_left_x, _yfrac)
+                    # Fett + minimale Größenzunahme + dickerer Rahmen + leichter
+                    # Farbtint statt Deckkraft-Sprung - dezent, kein Riesensprung.
                     ann.set_fontweight('bold' if _is_active else 'normal')
-                    ann.set_fontsize(Cfg.Fonts.Plots.LEGEND + (2 if _is_active else 0))
+                    ann.set_fontsize(Cfg.Fonts.Plots.LEGEND - 2 + (0.5 if _is_active else 0))
                     _bbox_patch = ann.get_bbox_patch()
                     if _bbox_patch is not None:
-                        _bbox_patch.set_linewidth(2.2 if _is_active else 1.0)
-                        _bbox_patch.set_alpha(0.95 if _is_active else Cfg.Colors.ANNOTATION_BOX_ALPHA)
+                        _bbox_patch.set_linewidth(1.4 if _is_active else 1.0)
+                        if _is_active:
+                            _bbox_patch.set_facecolor(_tint_color(_bbox_patch.get_edgecolor()))
+                        else:
+                            _bbox_patch.set_facecolor(Cfg.Colors.ANNOTATION_BG)
                     ann.set_zorder(6 if _is_active else 5)
                     ann.set_visible(True)
             else:
@@ -533,15 +979,37 @@ class PlotManager:
                 return
 
             if multi_cursor_var is not None and multi_cursor_var.get():
+                # Falls vorher "Zurück" gedrückt wurde, verwirft ein neuer Klick
+                # die dadurch ausgeblendeten "Zukunfts"-Cursor endgültig (wie
+                # bei Zoom/Pan-Historie mit neuer Aktion nach einem Rücksprung).
+                if pinned_state["visible"] < len(pinned_batches):
+                    for batch in pinned_batches[pinned_state["visible"]:]:
+                        for _ax, vline, ann, group_info in batch:
+                            vline.remove()
+                            if ann is not None:
+                                ann.remove()
+                            if group_info is not None:
+                                group_info["number_ann"].remove()
+                    del pinned_batches[pinned_state["visible"]:]
+
                 color = _next_pinned_color()
+                batch = []
                 for target_ax in _get_synced_axes(ax):
-                    _place_pinned_cursor(target_ax, best["x"], color)
+                    placed = _place_pinned_cursor(target_ax, best["x"], color)
+                    if placed is not None:
+                        vline, ann, group_info = placed
+                        batch.append((target_ax, vline, ann, group_info))
+                pinned_batches.append(batch)
+                pinned_state["visible"] = len(pinned_batches)
+                _renumber_pinned_cursors()
+                _push_history()
                 fig.canvas.draw_idle()
                 return
 
             start_x                = selection_start.get(ax)
             start_line, end_line   = selection_lines[ax]
             start_dot, end_dot     = selection_markers[ax]
+            is_group               = len(_get_series_list(ax)) > 1
 
             if start_x is None:
                 selection_start[ax]   = best["x"]
@@ -549,10 +1017,29 @@ class PlotManager:
                 start_line.set_xdata([best["x"], best["x"]])
                 start_line.set_visible(True)
                 end_line.set_visible(False)
-                start_dot.set_text(f"Start\nx={best['x']:.3f}\ny={best['y']:.3f}")
-                start_dot.xy = (best["x"], best["y"])
-                start_dot.set_visible(True)
-                end_dot.set_visible(False)
+                if is_group:
+                    # Wie beim gepinnten Cursor: dicker Strich + eingekreiste
+                    # Nummer im Plot, Wertetabelle als Karte im cursor_panel -
+                    # statt der einfachen Box im Plot.
+                    start_dot.set_visible(False)
+                    end_dot.set_visible(False)
+                    _clear_selection_cards(ax, "end")
+                    num_start, num_end = selection_group_numbers[ax]
+                    # xytext=(0, 4 pt)/textcoords='offset points' bei der
+                    # Erstellung sorgt dafür, dass die Textposition bei jedem
+                    # .xy-Update automatisch live neu berechnet wird (anders
+                    # als ohne xytext, wo matplotlib die Textposition beim
+                    # ersten Zeichnen einfriert).
+                    num_start.xy = (best["x"], 1.0)
+                    num_start.set_text(_circled_number(1))
+                    num_start.set_visible(True)
+                    num_end.set_visible(False)
+                    _update_selection_card(ax, "start", 1, Cfg.Colors.CURSOR_SECONDARY_COLOR, best["x"])
+                else:
+                    start_dot.set_text(f"Start\nx={best['x']:.3f}\ny={best['y']:.3f}")
+                    start_dot.xy = (best["x"], best["y"])
+                    start_dot.set_visible(True)
+                    end_dot.set_visible(False)
                 fig.canvas.draw_idle()
                 return
 
@@ -563,12 +1050,23 @@ class PlotManager:
             end_line.set_xdata([x1, x1])
             start_line.set_visible(True)
             end_line.set_visible(True)
-            start_dot.set_text(f"Start\nx={x0:.3f}\ny={y_at_x0:.3f}")
-            start_dot.xy = (x0, y_at_x0)
-            start_dot.set_visible(True)
-            end_dot.set_text(f"End\nx={best['x']:.3f}\ny={best['y']:.3f}")
-            end_dot.xy = (best["x"], best["y"])
-            end_dot.set_visible(True)
+            if is_group:
+                num_start, num_end = selection_group_numbers[ax]
+                num_start.xy = (x0, 1.0)
+                num_start.set_text(_circled_number(1))
+                num_start.set_visible(True)
+                num_end.xy = (x1, 1.0)
+                num_end.set_text(_circled_number(2))
+                num_end.set_visible(True)
+                _update_selection_card(ax, "start", 1, Cfg.Colors.CURSOR_SECONDARY_COLOR, x0)
+                _update_selection_card(ax, "end", 2, Cfg.Colors.CURSOR_PRIMARY_COLOR, x1)
+            else:
+                start_dot.set_text(f"Start\nx={x0:.3f}\ny={y_at_x0:.3f}")
+                start_dot.xy = (x0, y_at_x0)
+                start_dot.set_visible(True)
+                end_dot.set_text(f"End\nx={best['x']:.3f}\ny={best['y']:.3f}")
+                end_dot.xy = (best["x"], best["y"])
+                end_dot.set_visible(True)
 
             if range_selected_callback:
                 allow = True
@@ -602,6 +1100,20 @@ class PlotManager:
             new_xlim = list(PlotManager._apply_axis_margin(x0, x1))
             new_ylim = [y_min, y_max]
             _apply_sync_or_single(ax, new_xlim, new_ylim)
+
+            if is_group:
+                # Nach dem Reinzoomen (2. Klick bei "Einzeln") ist die Auswahl
+                # abgeschlossen - Strich/Zahl im Plot und Karte im
+                # "Gesetzte Cursor"-Panel wieder ausblenden, statt sie stehen
+                # zu lassen (Panel soll nur sichtbar sein, solange tatsächlich
+                # ein Cursor "gesetzt" ist).
+                start_line.set_visible(False)
+                end_line.set_visible(False)
+                num_start.set_visible(False)
+                num_end.set_visible(False)
+                _clear_selection_cards(ax)
+
+            _push_history()
             fig.canvas.draw_idle()
 
         def on_scroll(event):
@@ -619,6 +1131,7 @@ class PlotManager:
             new_xlim = [xdata - (xdata - xlim[0]) * scale, xdata + (xlim[1] - xdata) * scale]
             new_ylim = [ydata - (ydata - ylim[0]) * scale, ydata + (ylim[1] - ydata) * scale]
             _apply_sync_or_single(ax, new_xlim, new_ylim)
+            _push_history()
             fig.canvas.draw_idle()
 
         def on_leave(event):
@@ -631,6 +1144,30 @@ class PlotManager:
                 hover_state.update({"ax": None, "x": None, "y": None, "axes": set()})
             fig.canvas.draw_idle()
 
+        def on_pan_press(event):
+            """Startet das Pannen (Verschieben des sichtbaren Ausschnitts) bei
+            gedrückter rechter Maustaste - Zusatzoption neben Fadenkreuz und
+            Zwei-Klick-Bereichsauswahl (linke Maustaste, unverändert)."""
+            if event.button != 3 or event.inaxes is None:
+                return
+            ax = event.inaxes
+            if ax not in signal_data:
+                return
+            pan_state["ax"]     = ax
+            pan_state["x0_px"]  = event.x
+            pan_state["y0_px"]  = event.y
+            pan_state["limits"] = {
+                a: (a.get_xlim(), a.get_ylim()) for a in _get_synced_axes(ax)
+            }
+
+        def on_pan_release(event):
+            if event.button == 3:
+                was_panning = pan_state["ax"] is not None
+                pan_state["ax"]     = None
+                pan_state["limits"] = None
+                if was_panning:
+                    _push_history()
+
         def reset_selection():
             for ax in axes:
                 selection_start[ax] = None
@@ -640,11 +1177,19 @@ class PlotManager:
                 start_dot, end_dot = selection_markers[ax]
                 start_dot.set_visible(False)
                 end_dot.set_visible(False)
+                if ax in selection_group_numbers:
+                    num_start, num_end = selection_group_numbers[ax]
+                    num_start.set_visible(False)
+                    num_end.set_visible(False)
+                _clear_selection_cards(ax)
                 if ax in original_limits:
                     xlim, ylim = original_limits[ax]
                     ax.set_xlim(xlim)
                     ax.set_ylim(ylim)
-            _clear_pinned_cursors()
+            # Weich ausblenden statt Artists zu löschen, damit "Vor" nach dem
+            # Zurücksetzen die gepinnten Cursor wieder herstellen kann.
+            _set_pinned_visible_count(0)
+            _push_history()
             fig.canvas.draw_idle()
             if range_cleared_callback:
                 widget = getattr(fig.canvas, "get_tk_widget", None)
@@ -653,11 +1198,18 @@ class PlotManager:
                 else:
                     range_cleared_callback()
 
-        fig.canvas.mpl_connect('motion_notify_event', on_move)
-        fig.canvas.mpl_connect('axes_leave_event',    on_leave)
-        fig.canvas.mpl_connect('scroll_event',        on_scroll)
-        fig.canvas.mpl_connect('button_press_event',  on_click)
-        fig._reset_zoom_selection = reset_selection
+        fig.canvas.mpl_connect('motion_notify_event',  on_move)
+        fig.canvas.mpl_connect('axes_leave_event',     on_leave)
+        fig.canvas.mpl_connect('scroll_event',         on_scroll)
+        fig.canvas.mpl_connect('button_press_event',   on_click)
+        fig.canvas.mpl_connect('button_press_event',   on_pan_press)
+        fig.canvas.mpl_connect('button_release_event', on_pan_release)
+        fig._reset_zoom_selection   = reset_selection
+        fig._history_back          = _history_back
+        fig._history_forward       = _history_forward
+        fig._history_can_go_back    = lambda: view_history["index"] > 0
+        fig._history_can_go_forward = lambda: view_history["index"] < len(view_history["stack"]) - 1
+        _push_history()
 
     # --------------------------------------------------------
     #  ZEITBEREICH DIALOG

@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 #  KLASSE
 # ============================================================
-class FileHandler:
+class DateiHandler:
     """Klasse für alle Datei-Operationen mit Property-basierter Validierung"""
 
     def __init__(self):
@@ -83,6 +83,28 @@ class FileHandler:
             header2 = re.sub(r"\s*\([^)]+\)\s*$", "", name).strip()
             return header2, unit2
         return name, ""
+
+    @staticmethod
+    def samplerate_from_timestamps(timestamps):
+        """Berechnet die tatsaechliche Samplefrequenz (Hz) aus echten Zeitstempeln
+        der Originalaufnahme - der Median der Zeitabstaende ist robuster gegen
+        einzelne Ausreisser/Rundungsfehler als z.B. (letzter - erster)/(n-1).
+        Gibt None zurueck, wenn timestamps None/zu kurz ist oder der Median-Abstand
+        nicht positiv ist (z.B. doppelte/ungeordnete Zeitstempel)."""
+        if timestamps is None or len(timestamps) < 2:
+            return None
+        try:
+            ts = pd.to_datetime(pd.Series(timestamps).dropna())
+            if len(ts) < 2:
+                return None
+            deltas_s = np.diff(ts.to_numpy()) / np.timedelta64(1, "s")
+            median_dt = float(np.median(deltas_s))
+        except Exception:
+            logger.debug("Samplerate aus Zeitstempeln konnte nicht berechnet werden", exc_info=True)
+            return None
+        if median_dt <= 0:
+            return None
+        return 1.0 / median_dt
 
     # --------------------------------------------------------
     #  PROPERTIES

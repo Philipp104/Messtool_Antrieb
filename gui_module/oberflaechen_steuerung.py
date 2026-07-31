@@ -27,8 +27,7 @@ import pandas as pd
 # ============================================================
 from gui_module import meldungen as messagebox
 from gui_module.plot_manager import PlotManager
-from hilfsklassen.datei_handler import FileHandler
-from hilfsklassen.filter_manager import FilterManager
+from hilfsklassen.datei_handler import DateiHandler
 from hilfsklassen.zentrales_logging import get_protocol_logger, log_session_end
 from konfiguration import Cfg
 
@@ -42,7 +41,7 @@ protocol_logger = get_protocol_logger()
 # ============================================================
 #  KLASSE
 # ============================================================
-class UiControlManager:
+class OberflaechenSteuerung:
     """
     Zentrale Verwaltung aller GUI-Operationen:
     - State Management (reset_all, reset_inputs, enable_entries_after_load)
@@ -135,6 +134,11 @@ class UiControlManager:
 
     def _reset_input_entries(self, disable_after=False):
         """Setzt Eingabe-Entries (entry1–5) auf Platzhalter zurück."""
+        if hasattr(self.gui, "ganze_datei_var"):
+            self.gui.ganze_datei_var.set(True)
+        if hasattr(self.gui, "datei_info_label") and self.gui.datei_info_label is not None:
+            self.gui.datei_info_label.config(text="")
+
         placeholders = Cfg.Ph.EINGABE
         entries      = [self.gui.entry1, self.gui.entry2, self.gui.entry3,
                         self.gui.entry4, self.gui.entry5]
@@ -179,7 +183,11 @@ class UiControlManager:
         self.gui.reset_active = True
 
         # --- Mehrfachdatei-Panel ggf. schließen und normales Notebook wiederherstellen ---
-        if hasattr(self.gui, 'multi_file_manager') and self.gui.multi_file_panel.winfo_ismapped():
+        # is_active() statt winfo_ismapped(): Letzteres haengt von der Sichtbarkeit
+        # des gesamten Fensterbaums ab und liefert in manchen Zustaenden faelschlich
+        # False, obwohl das Panel tatsaechlich angezeigt wird - dann wuerde _cancel()
+        # hier uebersprungen und das Panel bliebe stehen (siehe is_active()-Docstring).
+        if hasattr(self.gui, 'multi_file_manager') and self.gui.multi_file_manager.is_active():
             self.gui.multi_file_manager._cancel()
 
         # --- Offene Fenster schließen ---
@@ -189,8 +197,7 @@ class UiControlManager:
         self.gui.open_plot_windows.clear()
 
         # Schließe auch Analysis-Fenster
-        if hasattr(self.gui.plot_window_manager, 'analysis_windows'):
-            self.gui.plot_window_manager.close_all_analysis_windows()
+        self.gui.plot_window_manager.close_all_analysis_windows()
 
         if self.gui.plot_window_manager.active_signal_window is not None:
             try:
@@ -293,11 +300,20 @@ class UiControlManager:
     def enable_entries_after_load(self):
         """Aktiviert alle Eingabefelder nach dem Laden einer Datei."""
         placeholders = Cfg.Ph.EINGABE
-        entries      = [self.gui.entry1, self.gui.entry2, self.gui.entry3,
-                        self.gui.entry4, self.gui.entry5]
+        entries      = [self.gui.entry1, self.gui.entry2, self.gui.entry3, self.gui.entry4]
         for entry, placeholder in zip(entries, placeholders):
             entry.config(state='normal')
             self.setup_placeholder(entry, placeholder)
+
+        # entry5 (Samplerate): NUR mit Placeholder-Verhalten einrichten, wenn es
+        # gerade nicht gesperrt ist. _prefill_from_df_and_enable() (laeuft VOR
+        # dieser Methode) sperrt es und traegt die aus echten Zeitstempeln
+        # berechnete reale Samplerate ein, sobald die Datei welche hat - das
+        # wuerde hier sonst sofort wieder ueberschrieben.
+        if str(self.gui.entry5.cget('state')) != 'disabled':
+            self.gui.entry5.config(state='normal')
+            self.setup_placeholder(self.gui.entry5, Cfg.Ph.SAMPLERATE)
+
         self.gui.entry6.config(state='normal')
 
     def update_processing_button_state(self):
@@ -337,7 +353,7 @@ class UiControlManager:
         if not (self.gui.Gesamtpfad and self.gui.sheet_combobox.get()):
             return
         try:
-            file_handler           = FileHandler()
+            file_handler           = DateiHandler()
             file_handler.file_path = str(self.gui.Gesamtpfad)
             result = file_handler.read_dws_excel(
                 self.gui.sheet_combobox.get(),

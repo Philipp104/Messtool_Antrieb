@@ -27,7 +27,6 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from gui_module import meldungen as messagebox
 from gui_module.plot_manager import PlotManager
 from gui_module.analyse_plotter import AnalysePlotter
-from hilfsklassen.daten_verarbeiter import DatenVerarbeiter
 from konfiguration import Cfg
 
 # ============================================================
@@ -47,7 +46,7 @@ plt.rcParams.update(Cfg.PlotStyle.MPL_RCPARAMS)
 # ============================================================
 #  KLASSE
 # ============================================================
-class AnalysisManager:
+class AnalyseManager:
     """
     Kapselt die Analyse-Funktionen:
     - AVG, RMS, FFT, Differential, Integral, Varianz/Statistik

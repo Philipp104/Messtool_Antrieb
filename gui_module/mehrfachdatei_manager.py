@@ -35,8 +35,9 @@ from tkinter import ttk, filedialog
 #  IMPORTS - Eigene Klassen
 # ============================================================
 from gui_module import meldungen as messagebox
-from hilfsklassen.datei_handler import FileHandler
-from hilfsklassen.daten_validator import DataValidator
+from tkinter import messagebox as tk_messagebox
+from hilfsklassen.datei_handler import DateiHandler
+from hilfsklassen.daten_validator import DatenValidator
 from hilfsklassen.zentrales_logging import get_protocol_logger
 from konfiguration import Cfg
 
@@ -95,7 +96,7 @@ class MehrfachDateiManager:
 
     def _load_file_data(self, record):
         """Laedt (bzw. laedt neu bei Sheet-Wechsel) die Daten einer Datei in den Datensatz."""
-        handler = FileHandler()
+        handler = DateiHandler()
         handler.file_path = str(record["path"])
         dummy = _DummyLabel()
 
@@ -131,6 +132,32 @@ class MehrfachDateiManager:
         protocol_logger.info(
             "MULTIFILE_LOADED file=%s rows=%s zeitstempel=%s", record["filename"], len(df), hat_zeitstempel
         )
+        self._apply_samplerate_field(record)
+
+    def _apply_samplerate_field(self, record):
+        """Befuellt/sperrt das Samplefrequenz-Feld EINER Datei - analog zum
+        Einzeldatei-Weg (hauptfenster_manager.py::_prefill_from_df_and_enable): hat die
+        Datei echte Zeitstempel, wird die daraus berechnete reale Rate
+        eingetragen und das Feld gesperrt (eine abweichende manuelle Eingabe
+        wuerde sonst FFT/Filter dieser Datei verfaelschen). Ohne echte
+        Zeitstempel bleibt es editierbar, vorbefuellt mit Cfg.Defaults.SAMPLERATE."""
+        entry = record.get("entry_samplerate")
+        if entry is None:
+            return
+
+        detected = DateiHandler.samplerate_from_timestamps(record.get("zeitstempel"))
+        entry.config(state="normal")
+        entry.delete(0, tk.END)
+
+        if detected is not None:
+            record["_samplerate_auto"]  = True
+            record["_samplerate_value"] = round(detected, 4)
+            entry.insert(0, str(record["_samplerate_value"]))
+            entry.config(state="disabled")
+            return
+
+        record["_samplerate_auto"] = False
+        entry.insert(0, str(Cfg.Defaults.SAMPLERATE))
 
     def _refill_range_fields(self, record):
         """Fuellt Start/End-Zeile/Spalte mit sinnvollen Standardwerten (numerische Spalten)."""
@@ -288,37 +315,29 @@ class MehrfachDateiManager:
         content = ttk.Frame(step1)
         content.pack(fill=tk.X, padx=20, pady=20)
 
-        ttk.Label(content, text="Samplefrequenz:").grid(row=0, column=0, sticky="w", padx=8, pady=8)
-        samplerate_entry = ttk.Entry(content, width=20)
-        samplerate_entry.configure(style="EntryPlaceholder.TEntry")
-        samplerate_entry.insert(0, Cfg.Ph.SAMPLERATE)
-        samplerate_entry._is_placeholder = True
-        samplerate_entry.grid(row=0, column=1, sticky="w", padx=8, pady=8)
-
-        def sr_focus_in(event):
-            if getattr(samplerate_entry, "_is_placeholder", False):
-                samplerate_entry.delete(0, tk.END)
-                samplerate_entry.configure(style="EntryNormal.TEntry")
-                samplerate_entry._is_placeholder = False
-
-        def sr_focus_out(event):
-            if not samplerate_entry.get().strip():
-                samplerate_entry.insert(0, Cfg.Ph.SAMPLERATE)
-                samplerate_entry.configure(style="EntryPlaceholder.TEntry")
-                samplerate_entry._is_placeholder = True
-
-        samplerate_entry.bind("<FocusIn>",  sr_focus_in)
-        samplerate_entry.bind("<FocusOut>", sr_focus_out)
-
-        ttk.Label(content, text="Fenstertyp:").grid(row=1, column=0, sticky="w", padx=8, pady=8)
+        # Kein globales Samplefrequenz-Feld mehr hier - jede Datei bekommt in
+        # Schritt 2 ihr eigenes Feld (automatisch aus echten Zeitstempeln
+        # erkannt+gesperrt, sonst editierbar mit Cfg.Defaults.SAMPLERATE als
+        # Fallback, siehe _apply_samplerate_field).
+        ttk.Label(content, text="Fenstertyp:").grid(row=0, column=0, sticky="w", padx=8, pady=8)
         fenstertyp_cb = ttk.Combobox(
             content, values=Cfg.Defaults.FENSTER_TYPEN, state="readonly", width=18
         )
         fenstertyp_cb.set(Cfg.Ph.FENSTERTYP)
-        fenstertyp_cb.grid(row=1, column=1, sticky="w", padx=8, pady=8)
+        fenstertyp_cb.grid(row=0, column=1, sticky="w", padx=8, pady=8)
 
-        self._samplerate_entry = samplerate_entry
-        self._fenstertyp_cb    = fenstertyp_cb
+        self._fenstertyp_cb = fenstertyp_cb
+
+        # Angehakt (Default): Schritt 2 (Datei-Tabs mit Start/End Zeile/Spalte
+        # pro Datei) wird uebersprungen, alle Dateien werden direkt mit "ganze
+        # Datei" verarbeitet - fuer den Normalfall, dass ohnehin jede Datei
+        # komplett eingelesen werden soll. Abgehakt: wie bisher Schritt 2 mit
+        # den einzelnen Datei-Tabs zum manuellen Anpassen pro Datei.
+        ganze_datei_alle_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            content, text="Alle Dateien komplett reinladen", variable=ganze_datei_alle_var,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 8))
+        self._ganze_datei_alle_var = ganze_datei_alle_var
 
         btn_frame = ttk.Frame(step1)
         btn_frame.pack(side=tk.TOP, pady=10)
@@ -335,40 +354,44 @@ class MehrfachDateiManager:
         """Uebernimmt Default-Werte falls nichts gewaehlt wurde, baut dann Schritt 2 (Datei-Tabs) auf."""
         aenderungen = []
 
-        if getattr(self._samplerate_entry, "_is_placeholder", False) or not self._samplerate_entry.get().strip():
-            self._samplerate_entry.delete(0, tk.END)
-            self._samplerate_entry.insert(0, str(Cfg.Defaults.SAMPLERATE))
-            self._samplerate_entry.configure(style="EntryNormal.TEntry")
-            self._samplerate_entry._is_placeholder = False
-            aenderungen.append(f"Samplefrequenz -> {Cfg.Defaults.SAMPLERATE}")
-
         if self._fenstertyp_cb.get() == Cfg.Ph.FENSTERTYP:
             self._fenstertyp_cb.set(Cfg.Defaults.FENSTERTYP)
             aenderungen.append(f"Fenstertyp -> {Cfg.Defaults.FENSTERTYP}")
-
-        try:
-            samplerate = float(self._samplerate_entry.get().strip().replace(",", "."))
-            if samplerate <= 0:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror("Fehler", "Bitte eine gueltige Samplefrequenz eingeben.")
-            return
 
         if aenderungen:
             messagebox.showinfo("Standardwerte", "Default Werte übernommen:\n" + "\n".join(aenderungen))
 
         self._step1_frame.pack_forget()
-        self._build_step2(self.gui.multi_file_panel)
+
+        # "Alle Dateien komplett reinladen" angehakt: Schritt 2 wird zwar intern
+        # aufgebaut (liefert die Datei-Records mit geladenen Daten, erkannter
+        # Samplefrequenz etc. - dieselbe Maschinerie wie im manuellen Weg),
+        # aber NICHT angezeigt, und die Verarbeitung startet sofort statt auf
+        # den "Verarbeiten"-Klick zu warten.
+        skip_step2_ui = self._ganze_datei_alle_var.get()
+        self._build_step2(self.gui.multi_file_panel, show=not skip_step2_ui)
 
         self.gui.save_mode.set("none")
         self.gui.ui_control._set_radiobutton_state("normal")
+
+        if skip_step2_ui:
+            self._process_all_files_batch(show_samplerate_summary=True)
+            # Nach der Verarbeitung Schritt 2 doch anzeigen - dieselben Datei-
+            # Tabs sind jetzt mit den fertigen Ausgabewerten (Startzeit/Endzeit/
+            # Samples/dt/df) pro Datei befuellt, genau wie beim manuellen Weg -
+            # nur die Konfiguration davor wurde uebersprungen.
+            if self._step2_frame.winfo_exists():
+                self._step2_frame.pack(fill=tk.BOTH, expand=True)
 
     # --------------------------------------------------------
     #  PANEL AUFBAU (Schritt 2: Datei-Tabs)
     # --------------------------------------------------------
 
-    def _build_step2(self, parent):
-        """Schritt 2: ein Tab pro Datei mit eigenem Zeilen-/Spaltenbereich."""
+    def _build_step2(self, parent, show=True):
+        """Schritt 2: ein Tab pro Datei mit eigenem Zeilen-/Spaltenbereich.
+        show=False baut alles wie gewohnt auf (Datei-Records, geladene Daten,
+        erkannte Samplefrequenz), zeigt es aber nicht an - fuer den "Alle
+        Dateien komplett reinladen"-Schnellweg, der sofort weiterverarbeitet."""
         step2 = ttk.Frame(parent)
         self._step2_frame = step2
 
@@ -391,7 +414,8 @@ class MehrfachDateiManager:
             btn_frame, text="Verarbeiten ->", command=self._process_all_files_batch, width=28
         ).pack(side=tk.TOP, pady=4)
 
-        step2.pack(fill=tk.BOTH, expand=True)
+        if show:
+            step2.pack(fill=tk.BOTH, expand=True)
 
     def _go_to_step1(self):
         """Zurueck zu Schritt 1, behaelt bereits eingegebene globale Werte."""
@@ -448,7 +472,7 @@ class MehrfachDateiManager:
 
         # ttk.Style statt rohem tk.Label: ttkbootstrap ueberschreibt bg/fg von
         # rohen tk-Widgets aktiv, ein eigener ttk-Style pro Farbe wird respektiert
-        # (gleiche Technik wie bei der Notebook-Tab-Faerbung in gui_layout_manager.py).
+        # (gleiche Technik wie bei der Notebook-Tab-Faerbung in oberflaechen_layout_manager.py).
         style_name = f"MultiFileTab{color.lstrip('#')}.TLabel"
         ttk.Style().configure(style_name, background=color, foreground="white",
                                font=(Cfg.Fonts.FAMILY, Cfg.Fonts.SMALL, "bold"))
@@ -511,6 +535,14 @@ class MehrfachDateiManager:
         record["entry_start_col"] = entry_start_col
         record["entry_end_col"]   = entry_end_col
 
+        samplerate_frame = ttk.Frame(tab)
+        samplerate_frame.pack(fill=tk.X, padx=10, pady=(0, 4))
+        ttk.Label(samplerate_frame, text="Samplefrequenz:").pack(side=tk.LEFT, padx=(0, 5))
+        entry_samplerate = ttk.Entry(samplerate_frame, width=14)
+        entry_samplerate.pack(side=tk.LEFT)
+        record["entry_samplerate"] = entry_samplerate
+        record["_samplerate_auto"] = False
+
         def toggle_range_fields():
             state = "disabled" if ganze_datei_var.get() else "normal"
             for e in (entry_start_row, entry_end_row, entry_start_col, entry_end_col):
@@ -552,16 +584,8 @@ class MehrfachDateiManager:
     # --------------------------------------------------------
 
     def _validate_global_inputs(self):
-        """Validiert Samplefrequenz/Fenstertyp aus Schritt 1 und prueft, dass alle Dateien
-        geladen sind. Gibt (samplerate, fenstertyp) zurueck, oder None (Fehler bereits angezeigt)."""
-        try:
-            samplerate = float(self._samplerate_entry.get().strip().replace(",", "."))
-            if samplerate <= 0:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror("Fehler", "Bitte eine gueltige Samplefrequenz eingeben.")
-            return None
-
+        """Validiert Fenstertyp aus Schritt 1 und prueft, dass alle Dateien geladen
+        sind. Gibt fenstertyp zurueck, oder None (Fehler bereits angezeigt)."""
         fenstertyp = self._fenstertyp_cb.get()
         if not fenstertyp or fenstertyp == Cfg.Ph.FENSTERTYP:
             messagebox.showerror("Fehler", "Bitte einen Fenstertyp waehlen.")
@@ -578,7 +602,7 @@ class MehrfachDateiManager:
             )
             return None
 
-        return samplerate, fenstertyp
+        return fenstertyp
 
     @staticmethod
     def _render_output_stats(record, t0, t1, n_samples, dt, df_step):
@@ -623,7 +647,27 @@ class MehrfachDateiManager:
             counter += 1
         return f"{candidate}_{counter}"
 
-    def _process_all_files_batch(self):
+    @staticmethod
+    def _file_samplerate(record, global_fallback):
+        """Liest die fuer DIESE Datei zu verwendende Samplefrequenz: bei echten
+        Zeitstempeln der automatisch erkannte, gesperrte Wert (siehe
+        _apply_samplerate_field); sonst der manuell im Datei-Tab eingegebene
+        Wert, mit dem globalen Fallback aus Schritt 1 bei leerer/ungueltiger
+        Eingabe (gleiche stille Fallback-Logik wie bei den Zeilen-/Spalten-
+        feldern weiter unten)."""
+        if record.get("_samplerate_auto"):
+            return record["_samplerate_value"]
+        entry = record.get("entry_samplerate")
+        if entry is not None:
+            try:
+                val = float(entry.get().strip().replace(",", "."))
+                if val > 0:
+                    return val
+            except ValueError:
+                pass
+        return global_fallback
+
+    def _process_all_files_batch(self, show_samplerate_summary=False):
         """Verarbeitet jede Datei unabhaengig durch die bestehende Einzel-Datei-Pipeline.
         Kein Zeit-Merge, keine Spaltenanzahl-Pruefung, kein Zeitstempel-Erfordernis -
         jede Datei bekommt ihre eigenen Plots/Spektren in spektren/<Dateiname>/. Ein
@@ -633,17 +677,18 @@ class MehrfachDateiManager:
         Zusaetzlich werden alle Signale aller Dateien in einem gemeinsamen Pool
         gesammelt (jedes Signal behaelt seine EIGENE Zeitachse, da die Dateien
         unterschiedlich lang sein koennen) - am Ende oeffnet sich EINMAL das
-        Signalauswahl-Fenster mit den Signalen aus allen Dateien zusammen."""
+        Signalauswahl-Fenster mit den Signalen aus allen Dateien zusammen.
+
+        show_samplerate_summary: True beim "Alle Dateien komplett reinladen"-
+        Schnellweg (Schritt 2 wird dabei nicht angezeigt) - dort bekommt der
+        Nutzer die einzelnen Samplefrequenz-Felder pro Datei nie zu Gesicht,
+        deshalb werden sie stattdessen in der Abschluss-Meldung aufgelistet."""
         gui = self.gui
+        samplerate_info = []
 
-        validated = self._validate_global_inputs()
-        if validated is None:
+        fenstertyp = self._validate_global_inputs()
+        if fenstertyp is None:
             return
-        samplerate, fenstertyp = validated
-
-        gui.entry5.config(state="normal")
-        gui.entry5.delete(0, tk.END)
-        gui.entry5.insert(0, str(samplerate))
 
         gui.entry6.config(state="normal")
         gui.entry6.set(fenstertyp)
@@ -651,6 +696,16 @@ class MehrfachDateiManager:
         dummy          = _DummyLabel()
         erfolgreich    = []
         fehlgeschlagen = []
+        # Die kombinierte "X Signale stehen jetzt gemeinsam zur Verfuegung"-
+        # Zusammenfassung passt nur, wenn ALLE Dateien automatisch (Ganze Datei)
+        # eingelesen wurden - bei gemischter/manueller Eingabe gibt es stattdessen
+        # pro Datei eine eigene "Datei verarbeitet"-Meldung (wie beim Einzeldatei-Weg).
+        alle_ganze_datei = all(record["ganze_datei_var"].get() for record in self.files)
+        # "Default Werte übernommen" ist bei jeder Datei derselbe generische Satz -
+        # einmal fuer den ganzen Batch reicht. Der "wurde begrenzt"-Hinweis dagegen
+        # ist pro Datei unterschiedlich (andere Datei, andere tatsaechliche Grenze)
+        # und bleibt daher bewusst pro Datei bestehen.
+        irgendwo_defaults_verwendet = False
 
         pool_signals    = []
         pool_headers    = []
@@ -659,28 +714,58 @@ class MehrfachDateiManager:
         pool_timestamps = []
 
         for record in self.files:
-            validator = DataValidator()
+            validator = DatenValidator()
             validator.df           = record["df"]
             validator.temp_df      = record["df"]
             validator.headers      = record["temp_headers"]
             validator.units        = record["temp_units"]
             validator.temp_headers = record["temp_headers"]
             validator.temp_units   = record["temp_units"]
+            # Damit "wurde begrenzt"-Hinweise bei mehreren Dateien erkennen lassen,
+            # auf welche Datei sie sich beziehen (siehe daten_validator.py).
+            validator.filename_context = record["filename"]
 
             try:
-                if record["ganze_datei_var"].get():
+                ganze_datei = record["ganze_datei_var"].get()
+                # Bereich automatisch aus der Datei berechnet -> Anpassung ist kein
+                # Hinweis auf eine zu grosse manuelle Eingabe, kein Hinweis-Popup
+                # (gleiche Logik wie im Einzeldatei-Weg, siehe hauptfenster_manager.py).
+                validator.suppress_range_hints = ganze_datei
+                if ganze_datei:
                     start_row, end_row, start_col, end_col = self._compute_default_range(record["df"])
                 else:
-                    start_row = int(record["entry_start_row"].get().strip())
-                    end_row   = int(record["entry_end_row"].get().strip())
-                    start_col = int(record["entry_start_col"].get().strip())
-                    end_col   = int(record["entry_end_col"].get().strip())
+                    # Leere Felder fallen wie beim Einzeldatei-Weg (hauptfenster_manager.py::
+                    # _apply_default_values) auf die Standardwerte zurueck, statt die
+                    # Datei mit einem ValueError fehlschlagen zu lassen. Zu grosse
+                    # Standardwerte werden danach ganz normal ueber suppress_range_hints=
+                    # False (s.o.) auf die tatsaechliche Dateigroesse begrenzt und gemeldet.
+                    default_used = []
+
+                    def _read_range_field(entry, default, label):
+                        text = entry.get().strip()
+                        if not text:
+                            default_used.append(label)
+                            return default
+                        return int(text)
+
+                    start_row = _read_range_field(record["entry_start_row"], Cfg.Defaults.START_REIHE,  "Start Zeile")
+                    end_row   = _read_range_field(record["entry_end_row"],   Cfg.Defaults.END_REIHE,    "End Zeile")
+                    start_col = _read_range_field(record["entry_start_col"], Cfg.Defaults.START_SPALTE, "Start Spalte")
+                    end_col   = _read_range_field(record["entry_end_col"],   Cfg.Defaults.END_SPALTE,   "End Spalte")
+
+                    if default_used:
+                        irgendwo_defaults_verwendet = True
+
+                file_samplerate = self._file_samplerate(record, Cfg.Defaults.SAMPLERATE)
+                samplerate_info.append(
+                    (record["filename"], file_samplerate, record.get("_samplerate_auto", False))
+                )
 
                 validator.end_col       = end_col
                 validator.start_col     = start_col
                 validator.start_row     = start_row
                 validator.end_row       = end_row
-                validator.samplerate_fs = samplerate
+                validator.samplerate_fs = file_samplerate
             except ValueError as e:
                 fehlgeschlagen.append(Cfg.Errors.VAL_MULTIFILE_FILE_FAILED.format(record["filename"], str(e)))
                 continue
@@ -704,7 +789,11 @@ class MehrfachDateiManager:
             gui._enter_loading_state()
             gui._enable_analysis_buttons()
 
-            file_result = (samplerate, 1, value, headers, units)
+            gui.entry5.config(state="normal")
+            gui.entry5.delete(0, tk.END)
+            gui.entry5.insert(0, str(file_samplerate))
+
+            file_result = (file_samplerate, 1, value, headers, units)
             try:
                 gui._process_validated_data(file_result, save_subdir=record["path"].stem, open_overlay=False)
             except Exception as e:
@@ -718,7 +807,7 @@ class MehrfachDateiManager:
             n_samples_file = value.shape[0]
             t0_file = gui.t[0]  if gui.t is not None and len(gui.t) > 0 else 0.0
             t1_file = gui.t[-1] if gui.t is not None and len(gui.t) > 0 else 0.0
-            df_file = samplerate / n_samples_file if samplerate and n_samples_file > 0 else 0.0
+            df_file = file_samplerate / n_samples_file if file_samplerate and n_samples_file > 0 else 0.0
             self._render_output_stats(record, t0_file, t1_file, n_samples_file, gui.dt, df_file)
 
             # Echte Zeitstempel dieser Datei auf denselben Zeilenbereich zuschneiden
@@ -750,18 +839,41 @@ class MehrfachDateiManager:
             protocol_logger.info(
                 "BATCH_FILE_DONE file=%s rows=%s columns=%s", record["filename"], value.shape[0], len(headers)
             )
+            if not alle_ganze_datei:
+                messagebox.showinfo(
+                    "Datei verarbeitet", f"{record['filename']}\n\n{len(headers)} Signal(e) eingelesen."
+                )
 
         protocol_logger.info(
             "BATCH_DONE total=%s erfolgreich=%s fehlgeschlagen=%s",
             len(self.files), len(erfolgreich), len(fehlgeschlagen)
         )
 
-        summary = f"{len(erfolgreich)} von {len(self.files)} Dateien erfolgreich verarbeitet."
+        if irgendwo_defaults_verwendet:
+            messagebox.showinfo("Standardwerte", "Default Werte übernommen")
+
         if fehlgeschlagen:
-            summary += "\n\nFehler:\n" + "\n".join(fehlgeschlagen)
-        if pool_signals:
-            summary += f"\n\n{len(pool_signals)} Signale aus {len(erfolgreich)} Datei(en) stehen jetzt gemeinsam in der Signalauswahl zur Verfuegung."
-        messagebox.showinfo("Batch abgeschlossen", summary)
+            messagebox.showerror("Batch - Fehler", "Fehler beim Verarbeiten:\n" + "\n".join(fehlgeschlagen))
+
+        if alle_ganze_datei:
+            summary = f"{len(erfolgreich)} von {len(self.files)} Dateien erfolgreich verarbeitet."
+            if pool_signals:
+                summary += f"\n\n{len(pool_signals)} Signale aus {len(erfolgreich)} Datei(en) stehen jetzt gemeinsam in der Signalauswahl zur Verfuegung."
+            if show_samplerate_summary and samplerate_info:
+                sr_lines = [
+                    f"{fname}: {sr:g} Hz" + (" (aus Zeitstempeln erkannt)" if auto else " (Standard, keine Zeitstempel)")
+                    for fname, sr, auto in samplerate_info
+                ]
+                summary = "Verwendete Samplefrequenzen:\n" + "\n".join(sr_lines) + "\n\n" + summary
+                # Beim "Alle Dateien komplett reinladen"-Schnellweg sieht der
+                # Nutzer die einzelnen Datei-Tabs vorher nie - die Samplefrequenz-
+                # Liste ist hier die einzige Gelegenheit, das zu pruefen. Deshalb
+                # als echter, blockierender Dialog (Mitte des Bildschirms, muss
+                # mit "OK" bestaetigt werden) statt als automatisch verschwindendes
+                # Toast (meldungen.showinfo) wie sonst im Programm ueblich.
+                tk_messagebox.showinfo("Batch abgeschlossen", summary)
+            else:
+                messagebox.showinfo("Batch abgeschlossen", summary)
 
         gui.ui_control._set_radiobutton_state("disabled")
 

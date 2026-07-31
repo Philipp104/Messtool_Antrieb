@@ -70,7 +70,12 @@ class LivePlotFensterManager:
         return None
 
     def _bind_var(self, var, name, callback):
-        """Bindet eine tkinter-Variable mit Logging an einen Callback."""
+        """Bindet eine tkinter-Variable mit Logging an einen Callback.
+        Gibt die Trace-ID zurück, damit der Aufrufer den Trace bei Bedarf
+        (z.B. beim Schliessen eines Fensters) wieder entfernen kann - wichtig
+        bei geteilten/langlebigen Variablen wie self.gui.use_filtered_var,
+        an die sonst bei jedem neuen Live-Plot-Fenster ein weiterer Callback
+        gehängt würde, der nie wieder verschwindet."""
         def _wrapped(*_):
             try:
                 protocol_logger.info("LIVE_PLOT_TOGGLE %s=%s", name, var.get())
@@ -78,9 +83,9 @@ class LivePlotFensterManager:
                 logger.debug("LIVE_PLOT_TOGGLE-Log für '%s' fehlgeschlagen: %s", name, e)
             callback()
         try:
-            var.trace_add("write", _wrapped)
+            return var.trace_add("write", _wrapped)
         except Exception:
-            var.trace("w", lambda *_: _wrapped())
+            return var.trace("w", lambda *_: _wrapped())
 
     def _show_zeitbereich_and_update(self, plot_window_data, analyse_typ, zeitbereich_key, plot_window, title):
         """
@@ -227,7 +232,7 @@ class LivePlotFensterManager:
         self._bind_var(show_phase_var,      "fft_phase",     simple_update)
         self._bind_var(show_diff_var,       "differential",  simple_update)
         self._bind_var(show_integral_var,   "integral",      simple_update)
-        self._bind_var(show_filtered_var,   "filtered",      _on_filtered_toggled)
+        filtered_trace_id = self._bind_var(show_filtered_var, "filtered", _on_filtered_toggled)
         self._bind_var(show_fft_master_var, "fft_master",    _on_fft_master_toggled)
         self._bind_var(show_avg_var, "avg", lambda: _on_analyse_toggled(
             show_avg_var, 'avg_zeitbereiche', 'AVG', "AVG - Zeitbereich auswählen"))
@@ -278,6 +283,15 @@ class LivePlotFensterManager:
         def on_window_close():
             if plot_window_data in self.gui.open_plot_windows:
                 self.gui.open_plot_windows.remove(plot_window_data)
+            # show_filtered_var ist self.gui.use_filtered_var - eine geteilte,
+            # session-lange Variable. Ohne trace_remove wuerde der oben per
+            # _bind_var angehaengte Callback (inkl. Referenz auf plot_window_data/
+            # fig/canvas) fuer immer daran haengen bleiben, auch nach dem Schliessen
+            # dieses Fensters.
+            try:
+                show_filtered_var.trace_remove("write", filtered_trace_id)
+            except Exception as e:
+                logger.debug("Trace-Cleanup für use_filtered_var fehlgeschlagen: %s", e)
             plot_window.destroy()
 
         plot_window.protocol("WM_DELETE_WINDOW", on_window_close)

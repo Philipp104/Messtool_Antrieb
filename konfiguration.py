@@ -26,6 +26,8 @@ STRUKTUR ÜBERSICHT:
 → Dieses File ist der EINZIGE Ort für Konfigurationsänderungen.
 """
 
+import colorsys
+
 
 # ============================================================
 #  FONTS – Schriften                            (alle UI-Files)
@@ -114,18 +116,28 @@ class Colors:
     GROUP_SELECTED_BG = "#d9edf7"
     GROUP_LABEL       = "blue"
 
-    # --- Einheiten-Palette für Plots (plot_manager.py) ---
-    UNIT_PALETTE = [
-        "#e6f3ff", "#e6ffe6", "#fff3e6", "#ffe6e6", "#f3e6ff",
-        "#e6ffff", "#fff9e6", "#ffe6f3", "#e6ffe9", "#f0e6ff",
-    ]
-
-    # --- Kräftigere Variante der Einheiten-Palette, nur für die Legenden-Farbfelder
-    #     (die pastelligen UNIT_PALETTE-Töne sind auf kleinen Swatches kaum sichtbar) ---
-    UNIT_PALETTE_ACCENT = [
-        "#4da6ff", "#4dcc4d", "#ffab4d", "#ff6666", "#b366ff",
-        "#4dd2ff", "#ffe14d", "#ff66b3", "#4dffa6", "#b84dff",
-    ]
+    # --- Einheiten-Palette für die Signalauswahl (signal_auswahlmanager.py) ---
+    # Wird dynamisch statt über eine feste Farbliste erzeugt: bei fester Länge
+    # wiederholten sich Farben sobald mehr Einheiten vorkamen als Palettenfarben
+    # vorhanden waren (Modulo-Wraparound) - besonders beim gleichzeitigen Laden
+    # mehrerer Dateien, weil dann mehr unterschiedliche Einheiten zusammenkommen
+    # als eine einzelne Datei je hätte. generate_unit_palette(n) liefert immer
+    # genau n paarweise unterscheidbare Farben, egal wie gross n ist.
+    @staticmethod
+    def generate_unit_palette(n):
+        """Erzeugt n paarweise unterscheidbare Farbpaare per gleichmässiger
+        Rotation im HSV-Farbkreis: pastellig für Listbox-Zeilenhintergründe,
+        kräftig für die Legenden-Farbfelder (die pastelligen Töne sind auf
+        kleinen Swatches kaum sichtbar). Rückgabe: (pastell_farben, akzent_farben),
+        je eine Liste der Länge n."""
+        pastel, accent = [], []
+        for i in range(n):
+            hue = i / n
+            r, g, b = colorsys.hsv_to_rgb(hue, 0.35, 1.0)
+            pastel.append("#{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255)))
+            r2, g2, b2 = colorsys.hsv_to_rgb(hue, 0.75, 0.85)
+            accent.append("#{:02x}{:02x}{:02x}".format(round(r2 * 255), round(g2 * 255), round(b2 * 255)))
+        return pastel, accent
 
     # --- Signalfarben (plot_manager.py) ---
     SIGNAL_ORIGINAL  = "#2c7fb8"
@@ -170,7 +182,7 @@ class Colors:
 
 
 # ============================================================
-#  STYLES – Custom TTK-Button-Styles            (gui_layout_manager.py)
+#  STYLES – Custom TTK-Button-Styles            (oberflaechen_layout_manager.py)
 # ============================================================
 
 class Styles:

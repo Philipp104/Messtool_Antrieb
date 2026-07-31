@@ -26,43 +26,43 @@
 Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Separation of Concerns:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        main.py                              │
-│                   (Entry Point & Logging)                   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│                     gui_manager.py                          │
-│              (Central Application Controller)               │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ Koordiniert alle Sub-Manager und App-State           │  │
-│  │ • FileHandler (Import)      • FilterManager         │  │
-│  │ • DataValidator (Validierung) • DatenVerarbeiter    │  │
-│  │ • PlotManager (Visualisierung) • AnalysisManager    │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-        │              │              │            │
-        ▼              ▼              ▼            ▼
-   GUI LAYOUT    DATA PROCESSING    PLOTTING     ANALYSIS
-   ┌────────┐   ┌──────────────┐  ┌────────┐  ┌────────┐
-   │ Layout │   │ FileHandler  │  │ Plots  │  │Analysis│
-   │Manager │   │              │  │Manager │  │Manager │
-   └────────┘   │ DataValidator│  └────────┘  └────────┘
-                │              │
-                │ FilterManager│
-                │              │
-                │DatenVerarbeiter
-                │              │
-                └──────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                             main.py                                │
+│                      (Entry Point & Logging)                       │
+└──────────────────────────────┬──────────────────────────────────────┘
+                                │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│                     hauptfenster_manager.py                         │
+│               (Central Application Controller)                      │
+│  ┌────────────────────────────────────────────────────────────┐    │
+│  │ Koordiniert alle Sub-Manager und App-State                 │    │
+│  │ • DateiHandler (Import)         • FilterManager             │    │
+│  │ • DatenValidator (Validierung)  • DatenVerarbeiter           │    │
+│  │ • PlotManager (Visualisierung)  • AnalyseManager             │    │
+│  └────────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────────┘
+        │              │                  │              │
+        ▼              ▼                  ▼              ▼
+   GUI LAYOUT    DATA PROCESSING       PLOTTING       ANALYSIS
+   ┌────────┐   ┌────────────────┐   ┌────────┐    ┌────────┐
+   │ Layout │   │ DateiHandler    │   │ Plots  │    │Analyse │
+   │Manager │   │                 │   │Manager │    │Manager │
+   └────────┘   │ DatenValidator  │   └────────┘    └────────┘
+                │                 │
+                │ FilterManager   │
+                │                 │
+                │ DatenVerarbeiter│
+                │                 │
+                └─────────────────┘
 ```
 
 ### Daten-Verarbeitungspipeline
 
 ```
 📁 Datei-Import
-    ↓ (FileHandler)
+    ↓ (DateiHandler)
 🔍 Validierung
-    ↓ (DataValidator)
+    ↓ (DatenValidator)
 ⚙️ Datenverarbeitung
     ↓ (DatenVerarbeiter)
 🔧 Filterung
@@ -81,7 +81,7 @@ Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Se
 | Datei | Größe | Funktion |
 |-------|-------|----------|
 | **main.py** | 2.6 KB | Einstiegspunkt • Logging-Setup • Session-Tracking • Fehlerbehandlung |
-| **gui_manager.py** | 34.4 KB | Zentrale GUI-Kontrolle • State-Management • Sub-Manager-Koordination |
+| **hauptfenster_manager.py** | 34.4 KB | Zentrale GUI-Kontrolle • State-Management • Sub-Manager-Koordination |
 | **konfiguration.py** | 46.2 KB | Zentrale Konfiguration für Farben, Fonts, Layouts, Texte, Limits |
 | **conftest.py** | – | Zentralisiert `.pyc`-Caches nach `.pycache/` auch für `pytest`-Läufe (siehe main.py-Mechanismus unten) |
 
@@ -91,7 +91,7 @@ Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Se
 
 | Datei | Größe | Verantwortung |
 |-------|-------|---|
-| **gui_layout_manager.py** | 37.8 KB | Layout-Konstruktion • Frame/Widget-Management • Button- und Input-Anordnung |
+| **oberflaechen_layout_manager.py** | 37.8 KB | Layout-Konstruktion • Frame/Widget-Management • Button- und Input-Anordnung |
 | **oberflaechen_steuerung.py** | 21.3 KB | UI-State-Management • Event-Handling • Enable/Disable-Logik • Dialog-Verwaltung |
 | **plot_manager.py** | 40.1 KB | Kern-Plotting-Funktionen • Zeit-/Frequenzdarstellung • Interaktive Cursor • FFT-Visualization |
 | **plot_fenster_manager.py** | 9.2 KB | Plot-Fenster-Lifecycle • Window-Management • Koordinator-Pattern |
@@ -133,7 +133,7 @@ Das Projekt folgt dem **MVC-Pattern** mit spezialiserten Manager-Klassen für Se
 1. setup_logging() - Logging-System initialisieren
 2. _install_exception_hooks() - Globale Fehlerbehandlung
 3. get_resource_path() - Pfade für Dev und PyInstaller
-4. GuiManager.create_gui() - GUI starten
+4. HauptfensterManager.create_gui() - GUI starten
 5. log_session_end() - Session dokumentieren
 ```
 
@@ -150,7 +150,7 @@ wieder verstreute `__pycache__/`-Ordner.
 
 ---
 
-### 2. **gui_manager.py** – Zentrale Kontrolle
+### 2. **hauptfenster_manager.py** – Zentrale Kontrolle
 
 **Kernfunktionen:**
 - `load_file()` - Datei importieren mit Validierung
@@ -354,7 +354,7 @@ show_path_window()
 
 ---
 
-### 10. **gui_layout_manager.py** – UI-Konstruktion
+### 10. **oberflaechen_layout_manager.py** – UI-Konstruktion
 
 **Aufbau:**
 
@@ -561,7 +561,8 @@ tkinter / ttkbootstrap  - GUI-Framework
 matplotlib              - Plotting & Visualization
 numpy / scipy           - Numerische Berechnungen (FFT, Filter)
 pandas                  - DataFrames & Datenverarbeitung
-openpyxl / xlrd         - Excel-Lesing
+openpyxl / xlrd         - Excel-Lesing (.xlsx / .xls)
+xlsxwriter              - Excel-Export (Fallback-Engine, falls openpyxl fehlschlägt)
 xhtml2pdf               - HTML → PDF Konvertierung
 PIL                     - Bild-Handling
 seaborn                 - Statistische Visualisierung
@@ -582,7 +583,7 @@ tempfile                - Temp-Dateien
 ```bash
 pip install -r requirements.txt
 # oder einzeln:
-pip install ttkbootstrap matplotlib numpy scipy pandas openpyxl xhtml2pdf pillow seaborn charset_normalizer
+pip install ttkbootstrap matplotlib numpy scipy pandas openpyxl xlsxwriter xlrd xhtml2pdf pillow seaborn charset_normalizer
 ```
 
 ---

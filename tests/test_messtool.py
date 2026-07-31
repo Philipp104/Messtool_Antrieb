@@ -9,9 +9,9 @@ from unittest import mock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from hilfsklassen.daten_validator import DataValidator
+from hilfsklassen.daten_validator import DatenValidator
 from hilfsklassen.filter_manager import FilterManager
-from hilfsklassen.datei_handler import FileHandler
+from hilfsklassen.datei_handler import DateiHandler
 from hilfsklassen.daten_verarbeiter import DatenVerarbeiter
 from gui_module.analyse_plotter import AnalysePlotter
 from konfiguration import Cfg
@@ -34,10 +34,10 @@ logging.basicConfig(
 logger = logging.getLogger("test_messtool")
 
 
-class TestDataValidatorExcelColumns(unittest.TestCase):
+class TestDatenValidatorExcelColumns(unittest.TestCase):
 
     def setUp(self):
-        self.validator = DataValidator()
+        self.validator = DatenValidator()
 
     def test_single_letter_A(self):
         self.assertEqual(self.validator.excel_column_to_number("A"), 1)
@@ -67,10 +67,10 @@ class TestDataValidatorExcelColumns(unittest.TestCase):
             self.validator.excel_column_to_number(None)
 
 
-class TestDataValidatorProperties(unittest.TestCase):
+class TestDatenValidatorProperties(unittest.TestCase):
 
     def setUp(self):
-        self.validator = DataValidator()
+        self.validator = DatenValidator()
 
     def test_negative_start_row_raises(self):
         with self.assertRaises(ValueError):
@@ -139,70 +139,70 @@ class TestDataValidatorProperties(unittest.TestCase):
         self.assertEqual(self.validator.total_samples, 0)
 
 
-class TestFileHandlerHeaderUnit(unittest.TestCase):
+class TestDateiHandlerHeaderUnit(unittest.TestCase):
 
     def test_standard_format(self):
-        header, unit = FileHandler.split_header_unit("Speed [km/h]")
+        header, unit = DateiHandler.split_header_unit("Speed [km/h]")
         self.assertEqual(header, "Speed")
         self.assertEqual(unit, "km/h")
 
     def test_unit_prefix_format(self):
-        header, unit = FileHandler.split_header_unit("Torque [unit: Nm]")
+        header, unit = DateiHandler.split_header_unit("Torque [unit: Nm]")
         self.assertEqual(header, "Torque")
         self.assertEqual(unit, "Nm")
 
     def test_no_unit(self):
-        header, unit = FileHandler.split_header_unit("SignalName")
+        header, unit = DateiHandler.split_header_unit("SignalName")
         self.assertEqual(header, "SignalName")
         self.assertEqual(unit, "")
 
     def test_empty_brackets(self):
-        header, unit = FileHandler.split_header_unit("Signal []")
+        header, unit = DateiHandler.split_header_unit("Signal []")
         self.assertEqual(header, "Signal")
         self.assertEqual(unit, "")
 
     def test_special_characters_in_unit(self):
-        header, unit = FileHandler.split_header_unit("Pressure [N/m²]")
+        header, unit = DateiHandler.split_header_unit("Pressure [N/m²]")
         self.assertEqual(header, "Pressure")
         self.assertEqual(unit, "N/m²")
 
     def test_spaces_around_unit(self):
-        header, unit = FileHandler.split_header_unit("Temp [ °C ]")
+        header, unit = DateiHandler.split_header_unit("Temp [ °C ]")
         self.assertEqual(header, "Temp")
         self.assertEqual(unit, "°C")
 
     def test_multiple_brackets_takes_first(self):
-        header, unit = FileHandler.split_header_unit("Signal [V] extra [ignored]")
+        header, unit = DateiHandler.split_header_unit("Signal [V] extra [ignored]")
         self.assertIn("V", unit)
 
 
-class TestFileHandlerDelimiter(unittest.TestCase):
+class TestDateiHandlerDelimiter(unittest.TestCase):
 
     def test_valid_delimiters_accepted(self):
-        fh = FileHandler()
+        fh = DateiHandler()
         for d in [';', ',', '\t', '|']:
             fh.delimiter = d
             self.assertEqual(fh._delimiter, d)
 
     def test_invalid_delimiter_raises(self):
-        fh = FileHandler()
+        fh = DateiHandler()
         with self.assertRaises(ValueError):
             fh.delimiter = '#'
 
     def test_valid_encodings_accepted(self):
-        fh = FileHandler()
+        fh = DateiHandler()
         for enc in ['utf-8', 'windows-1252', 'iso-8859-1']:
             fh.encoding = enc
             self.assertEqual(fh._encoding, enc)
 
     def test_invalid_encoding_raises(self):
-        fh = FileHandler()
+        fh = DateiHandler()
         with self.assertRaises(ValueError):
             fh.encoding = "ascii-fantasy"
 
 
-class TestFileHandlerReadTop(unittest.TestCase):
-    """Testet FileHandler.read_top() mit echten, synthetischen CSV/TOP-Dateien -
+class TestDateiHandlerReadTop(unittest.TestCase):
+    """Testet DateiHandler.read_top() mit echten, synthetischen CSV/TOP-Dateien -
     vorher komplett ungetestete Datei-Einlese-Pipeline (Encoding-/Delimiter-Erkennung,
     LOGITEM-Einheiten, 'Nb'-Datenstart-Erkennung, Zeitstempel-Parsing)."""
 
@@ -230,7 +230,7 @@ class TestFileHandlerReadTop(unittest.TestCase):
         )
         path = self._write_csv(content)
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_top(DummyLabel(), DummyLabel())
 
@@ -249,7 +249,7 @@ class TestFileHandlerReadTop(unittest.TestCase):
         )
         path = self._write_csv(content)
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         fh.read_top(DummyLabel(), DummyLabel())
 
@@ -267,7 +267,7 @@ class TestFileHandlerReadTop(unittest.TestCase):
         )
         path = self._write_csv(content)
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_top(DummyLabel(), DummyLabel())
 
@@ -283,7 +283,7 @@ class TestFileHandlerReadTop(unittest.TestCase):
         )
         path = self._write_csv(content)
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_top(DummyLabel(), DummyLabel())
 
@@ -298,7 +298,7 @@ class TestFileHandlerReadTop(unittest.TestCase):
             f.write(b"not really an excel file")
         self.tmp_path = path
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_top(DummyLabel(), DummyLabel())
 
@@ -307,8 +307,8 @@ class TestFileHandlerReadTop(unittest.TestCase):
         self.assertIsNone(units)
 
 
-class TestFileHandlerReadDwsExcel(unittest.TestCase):
-    """Testet FileHandler.read_dws_excel() mit einer echten, synthetischen
+class TestDateiHandlerReadDwsExcel(unittest.TestCase):
+    """Testet DateiHandler.read_dws_excel() mit einer echten, synthetischen
     DWS-Excel-Datei (MultiIndex-Header: Signalname + Einheit)."""
 
     def setUp(self):
@@ -337,7 +337,7 @@ class TestFileHandlerReadDwsExcel(unittest.TestCase):
     def test_parses_multiindex_header_und_daten(self):
         path = self._write_dws_excel()
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_dws_excel(sheet_name=0, status_label=DummyLabel(), progress_label=DummyLabel())
 
@@ -349,7 +349,7 @@ class TestFileHandlerReadDwsExcel(unittest.TestCase):
     def test_parses_echte_zeitstempel(self):
         path = self._write_dws_excel()
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         fh.read_dws_excel(sheet_name=0, status_label=DummyLabel(), progress_label=DummyLabel())
 
@@ -361,7 +361,7 @@ class TestFileHandlerReadDwsExcel(unittest.TestCase):
         path = self._write_dws_excel(header_row=("Foo", "Signal1", "Signal2"),
                                      unit_row=("x", "V", "A"))
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_dws_excel(sheet_name=0, status_label=DummyLabel(), progress_label=DummyLabel())
 
@@ -374,16 +374,16 @@ class TestFileHandlerReadDwsExcel(unittest.TestCase):
             f.write("a;b;c\n1;2;3\n")
         self.tmp_path = path
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_dws_excel(sheet_name=0, status_label=DummyLabel(), progress_label=DummyLabel())
 
         self.assertIsNone(df)
 
 
-class TestDataValidatorFilePipeline(unittest.TestCase):
-    """End-to-End: Datei einlesen (FileHandler) -> gewählten Zahlenbereich extrahieren
-    (DataValidator). Deckt den kompletten Weg ab, den eine echte Messdatei im Tool geht,
+class TestDatenValidatorFilePipeline(unittest.TestCase):
+    """End-to-End: Datei einlesen (DateiHandler) -> gewählten Zahlenbereich extrahieren
+    (DatenValidator). Deckt den kompletten Weg ab, den eine echte Messdatei im Tool geht,
     ohne echte Tkinter-Entry-Widgets zu brauchen (Bereich wird direkt gesetzt statt über
     set_entries_from_gui)."""
 
@@ -407,11 +407,11 @@ class TestDataValidatorFilePipeline(unittest.TestCase):
             f.write(content)
         self.tmp_path = path
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_top(DummyLabel(), DummyLabel())
 
-        dv = DataValidator()
+        dv = DatenValidator()
         dv.df           = df
         dv.headers      = headers
         dv.units        = units
@@ -447,11 +447,11 @@ class TestDataValidatorFilePipeline(unittest.TestCase):
         wb.save(path)
         self.tmp_path = path
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_dws_excel(sheet_name=0, status_label=DummyLabel(), progress_label=DummyLabel())
 
-        dv = DataValidator()
+        dv = DatenValidator()
         dv.df           = df
         dv.headers      = headers
         dv.units        = units
@@ -487,11 +487,11 @@ class TestDataValidatorFilePipeline(unittest.TestCase):
             f.write(content)
         self.tmp_path = path
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_top(DummyLabel(), DummyLabel())
 
-        dv = DataValidator()
+        dv = DatenValidator()
         dv.df           = df
         dv.headers      = headers
         dv.units        = units
@@ -522,11 +522,11 @@ class TestDataValidatorFilePipeline(unittest.TestCase):
             f.write(content)
         self.tmp_path = path
 
-        fh = FileHandler()
+        fh = DateiHandler()
         fh.file_path = path
         df, headers, units = fh.read_top(DummyLabel(), DummyLabel())
 
-        dv = DataValidator()
+        dv = DatenValidator()
         dv.df           = df
         dv.headers      = headers
         dv.units        = units

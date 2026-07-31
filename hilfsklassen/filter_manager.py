@@ -94,8 +94,18 @@ class FilterManager:
                 Cfg.Limits.CUTOFF_FREQ_MAX
             ))
 
+        if cutoff_frequency2 is not None and not (Cfg.Limits.CUTOFF_FREQ_MIN <= cutoff_frequency2 <= Cfg.Limits.CUTOFF_FREQ_MAX):
+            raise ValueError(Cfg.Errors.FILTER_INVALID_CUTOFF.format(
+                Cfg.Limits.CUTOFF_FREQ_MIN,
+                Cfg.Limits.CUTOFF_FREQ_MAX
+            ))
+
         if filter_type == "Bandpass" and cutoff_frequency2 is None:
             raise ValueError(Cfg.Errors.FILTER_BANDPASS_TWO_FREQS)
+
+        if filter_type == "Bandpass" and cutoff_frequency2 is not None and cutoff_frequency is not None \
+                and cutoff_frequency >= cutoff_frequency2:
+            raise ValueError(Cfg.Errors.FILTER_LOW_HIGH_ORDER.format(cutoff_frequency, cutoff_frequency2))
 
         self.filter_type       = filter_type
         self.cutoff_frequency  = cutoff_frequency
@@ -271,6 +281,17 @@ class FilterManager:
                     if normalized_cutoff2 >= 1.0:
                         self._reset_coefficients()
                         logger.warning(Cfg.Errors.FILTER_CUTOFF_TOO_HIGH.format(self.cutoff_frequency2, nyquist))
+                        return None, None, None
+                    # Gleiche Reihenfolge-Pruefung wie _apply_bandpass_filter - ohne sie
+                    # wuerde bei vertauschten Grenzfrequenzen entweder ein interner
+                    # scipy-Fehler (uneindeutig) oder ein Koeffizienten-Ergebnis fuer
+                    # einen anderen Filter angezeigt werden als der, den apply_filter
+                    # tatsaechlich (mit dieser Pruefung) ablehnt.
+                    if normalized_cutoff >= normalized_cutoff2:
+                        self._reset_coefficients()
+                        logger.warning(Cfg.Errors.FILTER_LOW_HIGH_ORDER.format(
+                            self.cutoff_frequency, self.cutoff_frequency2
+                        ))
                         return None, None, None
                     self.sos_coeffs = self._calculate_sos_coefficients(
                         [normalized_cutoff, normalized_cutoff2], btype='band'
